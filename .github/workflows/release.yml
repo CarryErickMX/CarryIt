@@ -1,0 +1,102 @@
+# Compila el instalador y la versión portátil en una máquina Windows de GitHub.
+# - Al subir una etiqueta "vX.Y.Z" publica una Release con los archivos.
+# - También se puede lanzar a mano (pestaña Actions → "Publicar versión" → Run workflow);
+#   en ese caso solo deja los archivos como "artifacts" para probarlos, sin publicar.
+name: Publicar versión
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Comprobar que la etiqueta coincide con la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = python -c "from carryit import __version__; print(__version__)"
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            throw "La etiqueta ${{ github.ref_name }} no coincide con __version__ = $v (carryit/__init__.py)"
+          }
+
+      - name: Descargar FFmpeg (yt-dlp/FFmpeg-Builds) y verificar SHA-256
+        shell: pwsh
+        run: |
+          $base = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest"
+          $zip  = "ffmpeg-master-latest-win64-gpl-shared.zip"
+          Invoke-WebRequest "$base/$zip" -OutFile $zip
+          Invoke-WebRequest "$base/checksums.sha256" -OutFile checksums.sha256
+          $line = Select-String -Path checksums.sha256 -Pattern ([regex]::Escape($zip)) | Select-Object -First 1
+          $expected = ($line.Line -split '\s+')[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "El SHA-256 de FFmpeg no coincide" }
+          Expand-Archive $zip -DestinationPath ffmpeg-dl
+          $bin = (Get-ChildItem ffmpeg-dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          "FFMPEG_BIN=$bin" >> $env:GITHUB_ENV
+
+      - name: Asegurar Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Compilar instalador y ZIP
+        shell: pwsh
+        # Para firmar, define el secreto SIGN_COMMAND (ver build.py) y descomenta la línea "env".
+        # env:
+        #   SIGN_COMMAND: ${{ secrets.SIGN_COMMAND }}
+        run: python build.py --ffmpeg "$env:FFMPEG_BIN"
+
+      - name: Probar el .exe compilado
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force selftest | Out-Null
+          $exe = "dist\CarryIt\CarryIt.exe"
+          $p = Start-Process $exe -ArgumentList '--selftest', 'https://www.youtube.com/watch?v=jNQXAC9IVRw', "`"$PWD\selftest`"" -Wait -PassThru
+          $r = Get-Content selftest\selftest.json -Raw | ConvertFrom-Json
+          $r | ConvertTo-Json -Depth 5
+          # Obligatorio: la interfaz abre y FFmpeg/Deno van incluidos.
+          if ($r.gui -ne "ok") { throw "La interfaz no abrió: $($r.gui)" }
+          if (-not $r.ffmpeg) { throw "FFmpeg no quedó incluido" }
+          if (-not $r.deno)   { throw "Deno no quedó incluido" }
+          # Las descargas pueden fallar aquí porque YouTube suele bloquear servidores de nube.
+          foreach ($k in "audio_mp3", "video_mp4") {
+            if ($r.$k.type -ne "done") { Write-Output "::warning::Descarga de prueba $k no terminó: $($r.$k.message)" }
+          }
+
+      - name: Guardar archivos (artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CarryIt-${{ github.ref_name }}
+          path: |
+            dist/CarryIt-Setup-*.exe
+            dist/CarryIt-*-portable.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publicar Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CarryIt-Setup-*.exe
+            dist/CarryIt-*-portable.zip
+            dist/SHA256SUMS.txt
+          generate_release_notes: true

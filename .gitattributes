@@ -1,0 +1,12 @@
+# Texto: Git normaliza los finales de línea; los scripts de Windows se guardan siempre con CRLF.
+* text=auto
+*.bat text eol=crlf
+*.iss text eol=crlf
+*.txt text eol=crlf
+
+# Archivos binarios: nunca se modifican.
+*.png binary
+*.ico binary
+*.bmp binary
+*.webp binary
+*.jpg binary

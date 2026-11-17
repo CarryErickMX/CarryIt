@@ -1,0 +1,14 @@
+# Entorno y compilación
+.venv/
+build/
+dist/
+assets/
+__pycache__/
+*.pyc
+
+# Restos de pruebas y descargas
+*.part
+*.ytdl
+selftest/
+ffmpeg-dl/
+*.zip

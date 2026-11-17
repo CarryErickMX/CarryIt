@@ -1,0 +1,5 @@
+# Solo para compilar y para regenerar la identidad visual (no hacen falta para usar la app).
+-r requirements.txt
+pyinstaller
+potracer
+numpy
