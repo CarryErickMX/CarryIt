@@ -31,6 +31,7 @@ THUMB_SIZE = (208, 117)
 
 # Textos en pantalla (traducidos). Lo que se guarda en las preferencias son códigos, no estos textos.
 BEST = _("Mejor calidad")
+COMPAT = _("Compatible con todo (hasta 1080p)")   # solo MP4: H.264 + AAC
 HEIGHT_LABELS = {2160: "2160p (4K)", 1440: "1440p (2K)", 1080: "1080p (Full HD)", 720: "720p (HD)"}
 LOSSLESS_LABEL = _("Sin pérdida")
 SUBS_LABELS = {"none": _("Sin subtítulos"), "es": _("Español"), "en": _("Inglés"), "es_en": _("Español e inglés")}
@@ -42,8 +43,8 @@ def height_label(h: int) -> str:
 
 
 def label_height(label: str) -> int | None:
-    """Texto del menú de calidad -> altura (None = la mejor)."""
-    if label == BEST or label in ("best", "Mejor calidad"):
+    """Texto o código de calidad -> altura (None = la mejor / compatible)."""
+    if label in (BEST, COMPAT, "best", "compat", "Mejor calidad"):
         return None
     try:
         return int(label.split("p")[0])
@@ -52,13 +53,17 @@ def label_height(label: str) -> int | None:
 
 
 def quality_code(label: str) -> str:
-    """Texto del menú de calidad -> código que se guarda ("best" o "1080")."""
+    """Texto del menú de calidad -> código que se guarda ("compat", "best" o "1080")."""
+    if label == COMPAT:
+        return "compat"
     h = label_height(label)
     return "best" if h is None else str(h)
 
 
-def quality_label(code: str) -> str:
+def quality_label(code: str, video_format: str = "MP4") -> str:
     """Código guardado -> texto del menú (acepta también los textos antiguos)."""
+    if code == "compat":
+        return COMPAT if video_format == "MP4" else BEST
     h = label_height(code)
     return BEST if h is None else height_label(h)
 
@@ -133,6 +138,64 @@ def set_window_icon(win) -> None:
         win._carryit_icons = (h_big, h_small)                     # que no se liberen
     except Exception:
         pass
+
+
+def work_area(win) -> tuple[int, int, int, int]:
+    """Espacio libre (sin la barra de tareas) del monitor donde está la ventana, en píxeles reales."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+            user32 = ctypes.windll.user32
+            user32.GetParent.restype = wintypes.HWND
+            user32.MonitorFromWindow.restype = wintypes.HMONITOR
+            user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+            hwnd = user32.GetParent(win.winfo_id()) or win.winfo_id()
+            monitor = user32.MonitorFromWindow(hwnd, 2)          # MONITOR_DEFAULTTONEAREST
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                r = info.rcWork
+                return r.left, r.top, r.right, r.bottom
+        except Exception:
+            pass
+    return 0, 0, win.winfo_screenwidth(), win.winfo_screenheight() - 48
+
+
+def available_size(win) -> tuple[float, float]:
+    """Tamaño máximo (en unidades de la interfaz, ya descontada la escala de Windows) para una ventana."""
+    scale = ctk.ScalingTracker.get_window_scaling(win)
+    left, top, right, bottom = work_area(win)
+    frame_w, frame_h = round(16 * scale), round(40 * scale)    # bordes y barra de título
+    return (right - left - frame_w) / scale, (bottom - top - frame_h) / scale
+
+
+def fit_window(win, width: int, height: int, parent=None, min_size: tuple[int, int] | None = None) -> tuple[int, int]:
+    """Da a la ventana el tamaño pedido si cabe en la pantalla; si no, la achica. La centra
+    (sobre `parent` si se indica) sin que se salga de la pantalla ni quede detrás de la barra de tareas."""
+    scale = ctk.ScalingTracker.get_window_scaling(win)
+    left, top, right, bottom = work_area(parent or win)
+    avail_w, avail_h = available_size(parent or win)
+    w, h = int(min(width, avail_w)), int(min(height, avail_h))
+    pw, ph = round(w * scale), round(h * scale)                # tamaño real en píxeles
+    frame_h = round(40 * scale)
+    if parent is not None and parent.winfo_ismapped():
+        x = parent.winfo_rootx() + (parent.winfo_width() - pw) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - ph) // 2 - frame_h // 2
+    else:
+        x = left + (right - left - pw) // 2
+        y = top + (bottom - top - ph - frame_h) // 2
+    x = max(left, min(x, right - pw - round(16 * scale)))
+    y = max(top, min(y, bottom - ph - frame_h))
+    win.geometry(f"{w}x{h}+{x}+{y}")
+    if min_size:
+        win.minsize(min(min_size[0], w), min(min_size[1], h))
+    return w, h
 
 
 def notify_attention(win) -> None:
@@ -218,8 +281,7 @@ class PlaylistDialog(ctk.CTkToplevel):
     def __init__(self, app: "App", info: core.MediaInfo, selected: set[int], on_accept) -> None:
         super().__init__(app)
         self.title(_("Elegir videos") + f" · {shorten(info.title, 50)}")
-        self.geometry("680x600")
-        self.minsize(520, 420)
+        fit_window(self, 680, 600, parent=app, min_size=(520, 380))
         self.transient(app)
         self.on_accept = on_accept
         self.entries = info.entries
@@ -476,8 +538,13 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title(APP_NAME)
-        self.geometry("940x820")
-        self.minsize(780, 640)
+        # Tamaño según el espacio libre real de la pantalla (resolución + escala de Windows).
+        # Con poco alto (p. ej. laptop 1080p al 150 %) se usa un diseño compacto para que todo quepa.
+        _avail_w, avail_h = available_size(self)
+        self.compact = avail_h < 760
+        self.thumb_size = (160, 90) if self.compact else THUMB_SIZE
+        self._pad = 3 if self.compact else 6
+        fit_window(self, 940, 820, min_size=(760, 600))
         self._set_icon()
 
         self.events: queue.Queue = queue.Queue()
@@ -529,7 +596,7 @@ class App(ctk.CTk):
 
     def _build_header(self) -> None:
         f = ctk.CTkFrame(self, fg_color="transparent")
-        f.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 6))
+        f.grid(row=0, column=0, sticky="ew", padx=20, pady=(8, 2) if self.compact else (16, 6))
         f.grid_columnconfigure(1, weight=1)
         try:
             self._logo = ctk.CTkImage(light_image=Image.open(resource("logo_symbol_light.png")),
@@ -551,7 +618,7 @@ class App(ctk.CTk):
 
     def _build_url_bar(self) -> None:
         f = ctk.CTkFrame(self, fg_color="transparent")
-        f.grid(row=1, column=0, sticky="ew", padx=20, pady=6)
+        f.grid(row=1, column=0, sticky="ew", padx=20, pady=self._pad)
         f.grid_columnconfigure(0, weight=1)
         self.url_entry = ctk.CTkEntry(
             f, height=40, font=ctk.CTkFont(size=14),
@@ -567,11 +634,11 @@ class App(ctk.CTk):
 
     def _build_info_card(self) -> None:
         card = ctk.CTkFrame(self, corner_radius=12)
-        card.grid(row=2, column=0, sticky="ew", padx=20, pady=6)
+        card.grid(row=2, column=0, sticky="ew", padx=20, pady=self._pad)
         card.grid_columnconfigure(1, weight=1)
-        self.thumb_lbl = ctk.CTkLabel(card, text="", width=THUMB_SIZE[0], height=THUMB_SIZE[1],
+        self.thumb_lbl = ctk.CTkLabel(card, text="", width=self.thumb_size[0], height=self.thumb_size[1],
                                       fg_color=("#D9D9DE", "#1F1F23"), corner_radius=8)
-        self.thumb_lbl.grid(row=0, column=0, rowspan=3, padx=12, pady=12)
+        self.thumb_lbl.grid(row=0, column=0, rowspan=3, padx=12, pady=8 if self.compact else 12)
         self.info_title = ctk.CTkLabel(card, text=_("Ningún enlace analizado"), anchor="w", justify="left",
                                        font=ctk.CTkFont(size=16, weight="bold"), wraplength=560)
         self.info_title.grid(row=0, column=1, sticky="sw", padx=(0, 12), pady=(14, 0))
@@ -613,27 +680,28 @@ class App(ctk.CTk):
 
     def _build_options(self) -> None:
         card = ctk.CTkFrame(self, corner_radius=12)
-        card.grid(row=3, column=0, sticky="ew", padx=20, pady=6)
+        card.grid(row=3, column=0, sticky="ew", padx=20, pady=self._pad)
         card.grid_columnconfigure(5, weight=1)
-        pad = {"padx": (12, 4), "pady": (12, 6)}
+        top = (8, 3) if self.compact else (12, 6)
+        pad = {"padx": (12, 4), "pady": top}
 
         ctk.CTkLabel(card, text=_("Descargar como")).grid(row=0, column=0, sticky="w", **pad)
         self.mode_btn = SegmentToggle(card, values=MODE_LABELS, command=lambda _v: self._on_mode_change())
         self.mode_btn.set("audio" if self.settings.mode == "audio" else "video")
-        self.mode_btn.grid(row=0, column=1, sticky="w", padx=4, pady=(12, 6))
+        self.mode_btn.grid(row=0, column=1, sticky="w", padx=4, pady=top)
 
-        ctk.CTkLabel(card, text=_("Formato")).grid(row=0, column=2, sticky="e", padx=(16, 4), pady=(12, 6))
+        ctk.CTkLabel(card, text=_("Formato")).grid(row=0, column=2, sticky="e", padx=(16, 4), pady=top)
         self.format_menu = ctk.CTkOptionMenu(card, values=core.VIDEO_FORMATS, width=96,
                                              command=lambda _v: self._on_format_change())
-        self.format_menu.grid(row=0, column=3, sticky="w", padx=4, pady=(12, 6))
+        self.format_menu.grid(row=0, column=3, sticky="w", padx=4, pady=top)
 
-        ctk.CTkLabel(card, text=_("Calidad")).grid(row=0, column=4, sticky="e", padx=(16, 4), pady=(12, 6))
-        self.quality_menu = ctk.CTkOptionMenu(card, values=[BEST], width=150,
+        ctk.CTkLabel(card, text=_("Calidad")).grid(row=0, column=4, sticky="e", padx=(16, 4), pady=top)
+        self.quality_menu = ctk.CTkOptionMenu(card, values=[BEST], width=250,
                                               command=lambda _v: self._save_choices())
-        self.quality_menu.grid(row=0, column=5, sticky="w", padx=4, pady=(12, 6))
+        self.quality_menu.grid(row=0, column=5, sticky="w", padx=4, pady=top)
 
         extras = ctk.CTkFrame(card, fg_color="transparent")
-        extras.grid(row=1, column=0, columnspan=6, sticky="ew", padx=12, pady=6)
+        extras.grid(row=1, column=0, columnspan=6, sticky="ew", padx=12, pady=self._pad)
         extras.grid_columnconfigure(0, weight=1)
         self.playlist_var = ctk.BooleanVar(value=self.settings.playlist)
         ctk.CTkCheckBox(extras, text=_("Si el enlace es de una lista, descargarla completa"),
@@ -649,7 +717,7 @@ class App(ctk.CTk):
 
         # Recortar: descargar solo una parte del video o del audio.
         trim = ctk.CTkFrame(card, fg_color="transparent")
-        trim.grid(row=2, column=0, columnspan=6, sticky="ew", padx=12, pady=6)
+        trim.grid(row=2, column=0, columnspan=6, sticky="ew", padx=12, pady=self._pad)
         self.trim_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(trim, text=_("Solo una parte:"), variable=self.trim_var,
                         command=self._on_trim_toggle).pack(side="left")
@@ -664,7 +732,7 @@ class App(ctk.CTk):
         self._on_trim_toggle()
 
         folder = ctk.CTkFrame(card, fg_color="transparent")
-        folder.grid(row=3, column=0, columnspan=6, sticky="ew", padx=12, pady=(6, 6))
+        folder.grid(row=3, column=0, columnspan=6, sticky="ew", padx=12, pady=self._pad)
         folder.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(folder, text=_("Guardar en")).grid(row=0, column=0, padx=(0, 8))
         self.folder_lbl = ctk.CTkLabel(folder, text=" " + shorten_path(self.settings.output_dir), anchor="w",
@@ -675,10 +743,11 @@ class App(ctk.CTk):
                       text_color=("gray10", "gray90"),
                       command=lambda: open_path(self.settings.output_dir)).grid(row=0, column=3, padx=(8, 0))
 
-        self.download_btn = ctk.CTkButton(card, text=_("Descargar"), height=44, fg_color=ACCENT,
+        self.download_btn = ctk.CTkButton(card, text=_("Descargar"), height=38 if self.compact else 44, fg_color=ACCENT,
                                           hover_color=ACCENT_HOVER, text_color=ACCENT_TEXT,
                                           font=ctk.CTkFont(size=16, weight="bold"), command=self.download)
-        self.download_btn.grid(row=4, column=0, columnspan=6, sticky="ew", padx=12, pady=(8, 12))
+        self.download_btn.grid(row=4, column=0, columnspan=6, sticky="ew", padx=12,
+                               pady=(4, 8) if self.compact else (8, 12))
 
     def _on_trim_toggle(self) -> None:
         state = "normal" if self.trim_var.get() else "disabled"
@@ -726,7 +795,7 @@ class App(ctk.CTk):
 
     def _build_downloads(self) -> None:
         wrap = ctk.CTkFrame(self, fg_color="transparent")
-        wrap.grid(row=4, column=0, sticky="nsew", padx=20, pady=(6, 0))
+        wrap.grid(row=4, column=0, sticky="nsew", padx=20, pady=(self._pad, 0))
         wrap.grid_columnconfigure(0, weight=1)
         wrap.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(wrap, text=_("Descargas"), font=ctk.CTkFont(size=16, weight="bold"),
@@ -748,7 +817,7 @@ class App(ctk.CTk):
 
     def _build_footer(self) -> None:
         f = ctk.CTkFrame(self, fg_color="transparent")
-        f.grid(row=5, column=0, sticky="ew", padx=20, pady=(4, 10))
+        f.grid(row=5, column=0, sticky="ew", padx=20, pady=(4, 6) if self.compact else (4, 10))
         f.grid_columnconfigure(0, weight=1)
         small = ctk.CTkFont(size=11)
         self.footer_lbl = ctk.CTkLabel(f, text=self._footer_text(), text_color=MUTED, anchor="w", font=small)
@@ -809,7 +878,14 @@ class App(ctk.CTk):
 
     def _video_quality_values(self) -> list[str]:
         heights = self._analyzed.heights if self._analyzed else core.DEFAULT_HEIGHTS
-        return [BEST] + [height_label(h) for h in heights]
+        first = [COMPAT, BEST] if self.format_menu.get() == "MP4" else [BEST]
+        return first + [height_label(h) for h in heights]
+
+    def _refresh_video_quality(self) -> None:
+        values = self._video_quality_values()
+        self.quality_menu.configure(values=values, state="normal")
+        wanted = quality_label(self.settings.video_quality, self.format_menu.get())
+        self.quality_menu.set(wanted if wanted in values else values[0])
 
     def _refresh_mode(self) -> None:
         if hasattr(self, "tags_btn"):
@@ -823,10 +899,7 @@ class App(ctk.CTk):
             self.subs_frame.grid()
             self.format_menu.configure(values=core.VIDEO_FORMATS)
             self.format_menu.set(self.settings.video_format)
-            values = self._video_quality_values()
-            self.quality_menu.configure(values=values, state="normal")
-            wanted = quality_label(self.settings.video_quality)
-            self.quality_menu.set(wanted if wanted in values else BEST)
+            self._refresh_video_quality()
 
     def _refresh_audio_quality(self) -> None:
         if self.format_menu.get() in core.LOSSLESS_AUDIO:
@@ -845,6 +918,12 @@ class App(ctk.CTk):
     def _on_format_change(self) -> None:
         if self.mode == "audio":
             self._refresh_audio_quality()
+        else:
+            # «Compatible con todo» solo existe en MP4: al cambiar de formato se actualiza la lista.
+            current = quality_code(self.quality_menu.get())
+            self.settings.video_format = self.format_menu.get()
+            self.settings.video_quality = current
+            self._refresh_video_quality()
         self._save_choices()
 
     def _save_choices(self) -> None:
@@ -1012,7 +1091,7 @@ class App(ctk.CTk):
             if h > target_h:  # recorta las franjas negras de las miniaturas 4:3
                 top = (h - target_h) // 2
                 img = img.crop((0, top, w, top + target_h))
-            self._thumb_image = ctk.CTkImage(light_image=img, dark_image=img, size=THUMB_SIZE)
+            self._thumb_image = ctk.CTkImage(light_image=img, dark_image=img, size=self.thumb_size)
             self.thumb_lbl.configure(image=self._thumb_image)
         except Exception:
             pass
@@ -1048,6 +1127,7 @@ class App(ctk.CTk):
             mode=s.mode,
             video_format=s.video_format,
             height=label_height(s.video_quality),
+            compat=s.video_quality == "compat" and s.video_format == "MP4",
             audio_format=s.audio_format,
             audio_bitrate=s.audio_quality.split()[0],
             playlist=s.playlist,
@@ -1150,7 +1230,10 @@ class App(ctk.CTk):
             q = "" if o.audio_format in core.LOSSLESS_AUDIO else f" {o.audio_bitrate}k"
             text = f"{o.audio_format}{q}"
         else:
-            text = f"{o.video_format} {f'{o.height}p' if o.height else _('máx.')}"
+            if o.compat:
+                text = f"{o.video_format} " + _("compatible")
+            else:
+                text = f"{o.video_format} {f'{o.height}p' if o.height else _('máx.')}"
         if o.playlist_items:
             n = sum(int(b) - int(a) + 1 if "-" in part else 1
                     for part in o.playlist_items.split(",")

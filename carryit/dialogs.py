@@ -16,7 +16,7 @@ from PIL import Image
 
 from . import APP_NAME, core, history, i18n, report
 from .gui import (ACCENT, ACCENT_HOVER, ACCENT_TEXT, ERR_COLOR, MUTED, fmt_time, open_path,
-                  outline_button, set_window_icon, shorten)
+                  fit_window, outline_button, set_window_icon, shorten)
 from .i18n import _
 
 SEARCH_THUMB = (144, 81)
@@ -25,11 +25,13 @@ SEARCH_THUMB = (144, 81)
 class _Dialog(ctk.CTkToplevel):
     """Base: ventana modal sobre la principal, con el ícono de CarryIt."""
 
-    def __init__(self, app, title: str, size: str) -> None:
+    def __init__(self, app, title: str, size: str, min_size: tuple[int, int] = (420, 220)) -> None:
         super().__init__(app)
         self.app = app
         self.title(title)
-        self.geometry(size)
+        # Se ajusta al espacio libre de la pantalla (escala de Windows incluida) y se centra sobre la app.
+        width, height = (int(n) for n in size.split("x"))
+        fit_window(self, width, height, parent=app, min_size=min_size)
         self.transient(app)
         self.after(100, self._grab)
         self.after(300, lambda: set_window_icon(self))

@@ -24,9 +24,12 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=CARRY
 VersionInfoVersion={#AppVersion}
-; Instalación por usuario (sin pedir permisos de administrador); se puede elegir "para todos".
+; Instalación solo para el usuario actual: no pide permisos de administrador ni pregunta el modo.
+; (Quien necesite instalar para todos puede ejecutar el instalador con /ALLUSERS.)
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline
+; El idioma del instalador se elige solo según Windows; la pregunta aparece únicamente si no es español ni inglés.
+ShowLanguageDialog=auto
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes

@@ -8,4 +8,4 @@ Descarga solo contenido del que tengas los derechos o cuyo autor permita descarg
 
 Descargar videos de YouTube puede ir contra sus condiciones de servicio. Tú eres responsable del uso que le des a este programa.
 
-Este programa es software libre (licencia MIT) y se ofrece "tal cual", sin garantía de ningún tipo. Incluye componentes de terceros con sus propias licencias (yt-dlp, FFmpeg, Deno, Python, CustomTkinter, Pillow); los detalles están en el archivo THIRD_PARTY_NOTICES.md de la carpeta de instalación.
+Este programa es software libre (licencia MIT) y se ofrece "tal cual", sin garantía de ningún tipo. Incluye componentes de terceros con sus propias licencias (yt-dlp, FFmpeg, Deno, Python, CustomTkinter, Pillow, curl_cffi); los detalles están en el archivo THIRD_PARTY_NOTICES.md de la carpeta de instalación.

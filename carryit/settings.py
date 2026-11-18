@@ -38,7 +38,7 @@ class Settings:
     output_dir: str = ""
     mode: str = "video"
     video_format: str = "MP4"
-    video_quality: str = "best"      # "best" o la altura, p. ej. "1080"
+    video_quality: str = "compat"    # "compat" (MP4 H.264), "best" o la altura, p. ej. "1080"
     audio_format: str = "MP3"
     audio_quality: str = "320 kbps"
     playlist: bool = False
@@ -56,6 +56,7 @@ class Settings:
     keep_subtitle_files: bool = False  # además de incrustarlos, guardar el .srt aparte
     rate_limit: str = ""             # "" = sin límite; p. ej. "2M"
     cookies_browser: str = ""        # navegador con sesión iniciada para sitios que la piden
+    schema: int = 1                  # versión del formato de este archivo (para migraciones)
 
     @classmethod
     def load(cls) -> "Settings":
@@ -77,7 +78,7 @@ class Settings:
     def _migrate(self) -> None:
         """Convierte valores guardados por versiones anteriores (textos en español) a códigos."""
         q = str(self.video_quality)
-        if not (q == "best" or q.isdigit()):
+        if not (q in ("best", "compat") or q.isdigit()):
             head = q.split("p")[0]
             self.video_quality = head if head.isdigit() else "best"
         old_subs = {"Sin subtítulos": "none", "Español": "es", "Inglés": "en", "Español e inglés": "es_en"}
@@ -87,6 +88,12 @@ class Settings:
             self.subtitles = "none"
         if self.language not in ("auto", "es", "en"):
             self.language = "auto"
+        if self.schema < 2:
+            # 1.0.1: «Compatible con todo» pasa a ser la calidad predeterminada (antes era «Mejor calidad»,
+            # que en 4K da archivos AV1/VP9 que algunos reproductores no abren).
+            if self.video_quality == "best":
+                self.video_quality = "compat"
+            self.schema = 2
 
     def save(self) -> None:
         try:

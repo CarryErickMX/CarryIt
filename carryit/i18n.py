@@ -78,6 +78,8 @@ EN: dict[str, str] = {
     "Formato": "Format",
     "Calidad": "Quality",
     "Mejor calidad": "Best quality",
+    "Compatible con todo (hasta 1080p)": "Plays everywhere (up to 1080p)",
+    "compatible": "compatible",
     "Sin pérdida": "Lossless",
     "Si el enlace es de una lista, descargarla completa": "If the link is a playlist, download all of it",
     "Subtítulos": "Subtitles",

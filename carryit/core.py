@@ -406,6 +406,7 @@ class DownloadOptions:
     mode: str = "video"            # "video" | "audio"
     video_format: str = "MP4"      # MP4 | MKV | WEBM
     height: int | None = None      # None = mejor calidad
+    compat: bool = False           # MP4 compatible con todo (H.264 + AAC, hasta 1080p)
     audio_format: str = "MP3"      # MP3 | M4A | OPUS | FLAC | WAV
     audio_bitrate: str = "320"     # kbps (se ignora en FLAC/WAV)
     playlist: bool = False
@@ -482,14 +483,21 @@ def build_args(o: DownloadOptions) -> list[str]:
     else:
         fmt = o.video_format.upper()
         res = f"res:{o.height}" if o.height else "res"
-        if fmt == "MP4":
-            # h264 + aac reproduce en cualquier dispositivo; si no hay a esa resolución, usa la mejor.
+        selector = "bv*+ba/b"
+        if fmt == "MP4" and o.compat:
+            # Compatible con todo: video H.264 + audio AAC (lo abre cualquier tele, celular o reproductor).
+            # YouTube solo lo da hasta 1080p; si un sitio no lo tiene, se usa lo mejor disponible.
+            selector = ("bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*[vcodec^=avc]+ba/"
+                        "b[vcodec^=avc]/bv*+ba/b")
+            sort = "res:1080,fps,vcodec:h264,acodec:aac"
+        elif fmt == "MP4":
+            # h264 + aac si existe a esa resolución; en 1440p/4K YouTube solo tiene AV1 o VP9.
             sort = f"{res},fps,vcodec:h264,acodec:aac"
         elif fmt == "WEBM":
             sort = f"{res},fps,vcodec:vp9,acodec:opus"
         else:
             sort = f"{res},fps"
-        args += ["--format", "bv*+ba/b", "--format-sort", sort,
+        args += ["--format", selector, "--format-sort", sort,
                  "--merge-output-format", fmt.lower()]
         if fmt != "WEBM":
             args += ["--embed-thumbnail"]

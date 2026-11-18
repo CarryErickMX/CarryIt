@@ -8,6 +8,6 @@ Only download content you own or that its author allows you to download (for exa
 
 Downloading YouTube videos may violate YouTube's Terms of Service. You are responsible for how you use this program.
 
-This program is free software (MIT license) provided "as is", without warranty of any kind. It includes third-party components under their own licenses (yt-dlp, FFmpeg, Deno, Python, CustomTkinter, Pillow); see THIRD_PARTY_NOTICES.md in the installation folder.
+This program is free software (MIT license) provided "as is", without warranty of any kind. It includes third-party components under their own licenses (yt-dlp, FFmpeg, Deno, Python, CustomTkinter, Pillow, curl_cffi); see THIRD_PARTY_NOTICES.md in the installation folder.
 
-Note: the program interface is currently in Spanish.
+The program is available in English and Spanish; it uses your Windows language (you can change it in Settings).
