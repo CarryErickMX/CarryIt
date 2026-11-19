@@ -78,6 +78,7 @@ jobs:
           if (-not $r.ffmpeg) { throw "FFmpeg no quedó incluido" }
           if (-not $r.deno)   { throw "Deno no quedó incluido" }
           if ($r.images_engine -ne "ok") { throw "El motor de imágenes no quedó completo: $($r.images_engine)" }
+          if ($r.sessions -ne "ok") { throw "El inicio de sesión en sitios no quedó completo: $($r.sessions)" }
           # Las descargas pueden fallar aquí porque YouTube suele bloquear servidores de nube.
           foreach ($k in "audio_mp3", "video_mp4", "image_jpg") {
             if ($r.$k.type -ne "done") { Write-Output "::warning::Descarga de prueba $k no terminó: $($r.$k.message)" }

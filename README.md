@@ -37,7 +37,7 @@ Get-FileHash .\CarryIt-Setup-1.1.0.exe
 - **Ajustes**: tema, descargas al mismo tiempo, nombre de los archivos (título, título - canal o canal - título) y carpetas separadas para videos y audios.
 - **Copiar informe**: si una descarga falla, un botón junta los datos del problema (sin tu nombre de usuario) para enviarlos a quien te ayude.
 - **Otros sitios**: además de YouTube, Facebook, TikTok, X (Twitter), Dailymotion, SoundCloud, Twitch y muchos más. Si el enlace solo tiene audio, la app cambia sola a «Solo audio».
-- **Sitios con cuenta** (Instagram, Vimeo, Reddit…): en Ajustes puedes usar la sesión que ya tienes abierta en tu navegador.
+- **Sitios con cuenta** (Instagram, Facebook, X, TikTok, Reddit, Pinterest): en Ajustes → «Iniciar sesión en sitios» entras a tu cuenta en una ventana de Microsoft Edge y CarryIt guarda la sesión solo en tu computadora. Si una descarga pide cuenta, la app ofrece entrar ahí mismo. También puede usar la sesión de Firefox.
 - **Subtítulos** en español, inglés o ambos, incrustados en el video (y, si quieres, también como archivo .srt). Si el sitio no los tiene, el video se descarga igual y te avisa.
 - **Solo una parte**: descarga únicamente un fragmento, por ejemplo del minuto 1:20 al 4:05.
 - **Pausar y reanudar** descargas sin perder lo ya bajado, y **velocidad máxima** configurable para no saturar tu internet.
@@ -78,6 +78,7 @@ Diagnóstico sin interfaz (descarga de prueba y apertura de la ventana; escribe 
 | `main.py` | Punto de entrada: registro de errores, carga de los motores actualizados y `--selftest`. |
 | `carryit/__init__.py` | Nombre, versión (`__version__`) y repositorio de GitHub (`GITHUB_REPO`). |
 | `carryit/core.py` | Lógica de yt-dlp: análisis, opciones, progreso, reintentos, cancelación y búsqueda de FFmpeg y Deno. |
+| `carryit/sessions.py` | Inicio de sesión en sitios: abre Edge con un perfil propio, lee la sesión por el protocolo de depuración (solo local) y la guarda para yt-dlp y gallery-dl. |
 | `carryit/images.py` | Descarga de imágenes con gallery-dl: análisis, carpetas por publicación, conversión a JPG y portadas de YouTube. |
 | `carryit/gui.py` | Interfaz con CustomTkinter. |
 | `carryit/updater.py` | Actualización de yt-dlp y gallery-dl desde PyPI y aviso de versiones nuevas de la app. |

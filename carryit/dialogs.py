@@ -15,7 +15,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from . import APP_NAME, core, history, i18n, report
-from .gui import (ACCENT, ACCENT_HOVER, ACCENT_TEXT, ERR_COLOR, MUTED, fmt_time, open_path,
+from .gui import (ACCENT, ACCENT_HOVER, ACCENT_TEXT, ERR_COLOR, MUTED, OK_COLOR, fmt_time, open_path,
                   fit_window, outline_button, set_window_icon, shorten)
 from .i18n import _
 
@@ -357,21 +357,30 @@ class SettingsDialog(_Dialog):
                                s.keep_subtitle_files)
 
         section(9, _("Sitios que piden iniciar sesión"))
-        ctk.CTkLabel(body, text=_("Para Instagram, Vimeo, Reddit y otros: usa la sesión que ya tienes abierta en "
-                                  "tu navegador. Firefox es el más compatible."), text_color=MUTED,
+        ctk.CTkLabel(body, text=_("Para Instagram, Facebook, X, TikTok y otros: entra a tu cuenta desde CarryIt. "
+                                  "La sesión se guarda solo en esta computadora."), text_color=MUTED,
                      wraplength=470, justify="left", anchor="w").grid(row=10, column=0, columnspan=2,
                                                                       sticky="w", padx=16)
-        self.browser = option(11, _("Navegador"), self.browsers, s.cookies_browser)
+        login_row = ctk.CTkFrame(body, fg_color="transparent")
+        login_row.grid(row=11, column=0, columnspan=2, sticky="ew", padx=16, pady=6)
+        login_row.grid_columnconfigure(1, weight=1)
+        outline_button(login_row, _("Iniciar sesión en sitios…"), self._open_logins, width=200).grid(
+            row=0, column=0, sticky="w")
+        self.sessions_lbl = ctk.CTkLabel(login_row, text="", text_color=MUTED, anchor="e", wraplength=250,
+                                         justify="right")
+        self.sessions_lbl.grid(row=0, column=1, sticky="e")
+        self._refresh_sessions()
+        self.browser = option(12, _("O usar la sesión del navegador"), self.browsers, s.cookies_browser)
 
-        section(12, _("Comodidad"))
-        self.clip = check(13, _("Detectar enlaces copiados (YouTube, Facebook, TikTok…)"), s.watch_clipboard)
-        self.notify = check(14, _("Avisar cuando termine una descarga (si la ventana no está al frente)"),
+        section(13, _("Comodidad"))
+        self.clip = check(14, _("Detectar enlaces copiados (YouTube, Facebook, TikTok…)"), s.watch_clipboard)
+        self.notify = check(15, _("Avisar cuando termine una descarga (si la ventana no está al frente)"),
                             s.notify)
-        self.auto = check(15, _("Buscar actualizaciones automáticamente"), s.auto_update)
+        self.auto = check(16, _("Buscar actualizaciones automáticamente"), s.auto_update)
 
-        section(16, _("Ayuda"))
+        section(17, _("Ayuda"))
         outline_button(body, _("Copiar informe de diagnóstico"), self._copy_report, width=230).grid(
-            row=17, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 16))
+            row=18, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 16))
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
@@ -386,6 +395,16 @@ class SettingsDialog(_Dialog):
         messagebox.showinfo(APP_NAME, _("Informe copiado.") + "\n\n"
                             + _("Pégalo (Ctrl+V) en un mensaje para quien te ayuda o al reportar el problema."),
                             parent=self)
+
+    def _refresh_sessions(self) -> None:
+        from . import sessions
+        names = [site.name for key, site in sessions.SITES.items() if sessions.logged_in(key)]
+        self.sessions_lbl.configure(
+            text=_("Sesión iniciada: {sites}").format(sites=", ".join(names)) if names else _("Sin sesiones"),
+            text_color=OK_COLOR if names else MUTED)
+
+    def _open_logins(self) -> None:
+        LoginDialog(self.app, return_to=self, on_change=self._refresh_sessions)
 
     def _save(self) -> None:
         s = self.app.settings
@@ -409,3 +428,146 @@ class SettingsDialog(_Dialog):
             if messagebox.askyesno(APP_NAME, _("El idioma cambiará al reiniciar CarryIt.") + "\n\n"
                                    + _("¿Reiniciar ahora?")):
                 self.app._restart()
+
+
+# --------------------------------------------------------------------------- #
+class LoginDialog(_Dialog):
+    """Iniciar o cerrar sesión en los sitios que piden cuenta. La cuenta se abre en una ventana de Edge
+    (ver sessions.py); aquí solo se muestra el estado y se espera a que la persona termine.
+
+    `only`: abre directamente el inicio de sesión de ese sitio (cuando una descarga lo pidió) y, al
+    terminar bien, llama a `on_done(key)` y se cierra sola.
+    """
+
+    def __init__(self, app, only: str | None = None, on_done=None, return_to=None, on_change=None) -> None:
+        super().__init__(app, _("Iniciar sesión en sitios"), "540x600", min_size=(460, 380))
+        from . import sessions
+        self.sessions = sessions
+        self.only, self.on_done, self.return_to, self.on_change = only, on_done, return_to, on_change
+        self.events: queue.Queue = queue.Queue()
+        self._login = None
+        self._running: str | None = None
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(self, text=_("Se abre una ventana de Microsoft Edge para que entres a tu cuenta como siempre. "
+                                  "CarryIt guarda la sesión solo en esta computadora y la usa únicamente para "
+                                  "descargar."), text_color=MUTED, wraplength=480, justify="left",
+                     anchor="w").grid(row=0, column=0, sticky="ew", padx=20, pady=(18, 8))
+
+        body = ctk.CTkScrollableFrame(self, corner_radius=12)
+        body.grid(row=1, column=0, sticky="nsew", padx=16, pady=4)
+        body.grid_columnconfigure(1, weight=1)
+        bold = ctk.CTkFont(size=14, weight="bold")
+        self._rows: dict[str, tuple[ctk.CTkLabel, ctk.CTkButton]] = {}
+        for i, (key, site) in enumerate(sessions.SITES.items()):
+            ctk.CTkLabel(body, text=site.name, font=bold, anchor="w").grid(row=i, column=0, sticky="w",
+                                                                          padx=(12, 8), pady=8)
+            status = ctk.CTkLabel(body, text="", anchor="w")
+            status.grid(row=i, column=1, sticky="w", padx=8)
+            btn = outline_button(body, "", lambda k=key: self._toggle(k), width=130)
+            btn.grid(row=i, column=2, sticky="e", padx=12, pady=8)
+            self._rows[key] = (status, btn)
+
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.grid(row=2, column=0, sticky="ew", padx=20, pady=(8, 16))
+        bottom.grid_columnconfigure(0, weight=1)
+        self.footer = ctk.CTkLabel(bottom, text="", text_color=MUTED, wraplength=360, justify="left", anchor="w")
+        self.footer.grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(bottom, text=_("Cerrar"), width=110, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      text_color=ACCENT_TEXT, command=self._close).grid(row=0, column=1, sticky="e")
+        self._refresh()
+        if only in sessions.SITES:
+            self.after(400, lambda: self._start(only))
+        self.after(150, self._poll)
+
+    def _refresh(self) -> None:
+        for key, (status, btn) in self._rows.items():
+            if self._running == key:
+                status.configure(text=_("Esperando…"), text_color=ACCENT)
+                btn.configure(text=_("Cancelar"), state="normal")
+                continue
+            logged = self.sessions.logged_in(key)
+            status.configure(text=_("Sesión iniciada") if logged else _("Sin sesión"),
+                             text_color=OK_COLOR if logged else MUTED)
+            btn.configure(text=_("Cerrar sesión") if logged else _("Iniciar sesión"),
+                          state="disabled" if self._running else "normal")
+
+    def _toggle(self, key: str) -> None:
+        if self._running == key:
+            if self._login:
+                self._login.cancel()
+            self.footer.configure(text=_("Cancelando…"), text_color=MUTED)
+            return
+        site = self.sessions.SITES[key]
+        if self.sessions.logged_in(key):
+            if messagebox.askyesno(APP_NAME, _("¿Cerrar la sesión de {site} en CarryIt?").format(site=site.name),
+                                   parent=self):
+                self.sessions.logout(key)
+                self.footer.configure(text=_("Se cerró la sesión de {site}.").format(site=site.name),
+                                      text_color=MUTED)
+                self._changed()
+            return
+        self._start(key)
+
+    def _start(self, key: str) -> None:
+        site = self.sessions.SITES[key]
+        self._running = key
+        self._login = self.sessions.Login(key)
+        self.footer.configure(text=_("Entra a tu cuenta de {site} en la ventana que se abrió. CarryIt la cerrará "
+                                     "sola cuando termines.").format(site=site.name), text_color=MUTED)
+        self._refresh()
+        login = self._login
+
+        def work():
+            try:
+                self.events.put((key, login.run(), None))
+            except self.sessions.LoginError as exc:
+                self.events.put((key, False, str(exc)))
+            except Exception as exc:
+                core.log.exception("Error al iniciar sesión")
+                self.events.put((key, False, _("No se pudo iniciar sesión: {error}").format(error=exc)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _poll(self) -> None:
+        if not self.winfo_exists():
+            return
+        try:
+            while True:
+                key, ok, error = self.events.get_nowait()
+                site = self.sessions.SITES[key]
+                self._running, self._login = None, None
+                if ok:
+                    self.footer.configure(text=_("Listo: se guardó tu sesión de {site}.").format(site=site.name),
+                                          text_color=OK_COLOR)
+                elif error:
+                    self.footer.configure(text=error, text_color=ERR_COLOR)
+                else:
+                    self.footer.configure(text=_("No se inició sesión en {site}.").format(site=site.name),
+                                          text_color=MUTED)
+                self._changed()
+                if ok and self.only == key and self.on_done:
+                    self.after(700, lambda k=key: (self._close(), self.on_done(k)))
+        except queue.Empty:
+            pass
+        self.after(150, self._poll)
+
+    def _changed(self) -> None:
+        self._refresh()
+        if self.on_change:
+            try:
+                self.on_change()
+            except Exception:
+                pass
+
+    def _close(self) -> None:
+        if self._login:
+            self._login.cancel()
+        self.destroy()
+        if self.return_to is not None:
+            try:
+                self.return_to._grab()   # devolver el foco a Ajustes
+            except Exception:
+                pass

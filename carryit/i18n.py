@@ -223,23 +223,32 @@ EN: dict[str, str] = {
     "El video no está disponible.": "The video isn't available.",
     "El enlace no es válido.": "The link isn't valid.",
     "Este enlace no tiene video: puede ser una foto o un carrusel de imágenes (para bajarlas elige «Imágenes»). "
-    "Si sí es un video, el sitio puede estar pidiendo iniciar sesión: en Ajustes elige el navegador donde tienes "
-    "tu sesión abierta y vuelve a intentarlo.":
+    "Si sí es un video, el sitio puede estar pidiendo iniciar sesión: entra a tu cuenta desde CarryIt (Ajustes → "
+    "«Iniciar sesión en sitios») y vuelve a intentarlo.":
         "This link has no video: it may be a photo or an image carousel (to get them, choose “Images”). "
-        "If it is a video, the site may require signing in: in Settings, choose the browser where you're signed "
-        "in and try again.",
+        "If it is a video, the site may require signing in: sign in to your account from CarryIt (Settings → "
+        "“Sign in to sites”) and try again.",
     "La publicación no existe o fue borrada.": "The post doesn't exist or was deleted.",
     "CarryIt no sabe sacar imágenes de este sitio.": "CarryIt can't get images from this site.",
     "No se encontraron imágenes en este enlace.": "No images were found at this link.",
     "Este video no tiene portada para descargar.": "This video has no thumbnail to download.",
-    "No se pudo leer la sesión del navegador. Ciérralo por completo y reintenta, o elige otro navegador en "
-    "Ajustes (Firefox es el más compatible).":
-        "Couldn't read the browser session. Close the browser completely and retry, or choose another browser "
-        "in Settings (Firefox is the most compatible).",
-    "Este sitio pide iniciar sesión para ver este contenido. En Ajustes elige el navegador donde tienes tu "
-    "sesión abierta y vuelve a intentarlo.":
-        "This site requires signing in to see this content. In Settings, choose the browser where you're signed "
-        "in and try again.",
+    "Tu navegador": "Your browser",
+    "{browser} protege tu sesión y no deja que otros programas la usen (Chrome y Edge lo hacen en Windows desde "
+    "2024). Entra a tu cuenta desde CarryIt (Ajustes → «Iniciar sesión en sitios») o usa Firefox.":
+        "{browser} protects your session and doesn't let other programs use it (Chrome and Edge do this on "
+        "Windows since 2024). Sign in to your account from CarryIt (Settings → “Sign in to sites”) or use "
+        "Firefox.",
+    "No se pudo leer la sesión de {browser} porque está abierto. Ciérralo por completo y vuelve a intentarlo, "
+    "o usa Firefox (en Ajustes).":
+        "Couldn't read the {browser} session because it's open. Close it completely and try again, or use "
+        "Firefox (in Settings).",
+    "No se encontró {browser} en esta computadora, o no tiene una sesión iniciada. En Ajustes elige el "
+    "navegador que usas.":
+        "{browser} wasn't found on this computer, or it has no session. In Settings, choose the browser you use.",
+    "Este sitio pide iniciar sesión para ver este contenido. Entra a tu cuenta desde CarryIt (Ajustes → "
+    "«Iniciar sesión en sitios») y vuelve a intentarlo.":
+        "This site requires signing in to see this content. Sign in to your account from CarryIt (Settings → "
+        "“Sign in to sites”) and try again.",
     "No hay conexión con el sitio. Revisa tu internet.": "Can't reach the site. Check your internet connection.",
     "No se encontró FFmpeg; es necesario para unir video/audio y convertir a MP3.":
         "FFmpeg wasn't found; it's needed to merge video/audio and convert to MP3.",
@@ -316,11 +325,44 @@ EN: dict[str, str] = {
     "Sin límite": "No limit",
     "Guardar los subtítulos también como archivo .srt aparte": "Also save subtitles as a separate .srt file",
     "Sitios que piden iniciar sesión": "Sites that require signing in",
-    "Para Instagram, Vimeo, Reddit y otros: usa la sesión que ya tienes abierta en tu navegador. Firefox es el "
-    "más compatible.":
-        "For Instagram, Vimeo, Reddit and others: use the session you already have open in your browser. "
-        "Firefox is the most compatible.",
-    "Navegador": "Browser",
+    "Para Instagram, Facebook, X, TikTok y otros: entra a tu cuenta desde CarryIt. La sesión se guarda solo en "
+    "esta computadora.":
+        "For Instagram, Facebook, X, TikTok and others: sign in to your account from CarryIt. The session is only "
+        "saved on this computer.",
+    "Iniciar sesión en sitios…": "Sign in to sites…",
+    "O usar la sesión del navegador": "Or use the browser's session",
+    "Sesión iniciada: {sites}": "Signed in: {sites}",
+    "Sin sesiones": "Not signed in anywhere",
+    # --- Iniciar sesión en sitios ---
+    "Iniciar sesión en sitios": "Sign in to sites",
+    "Se abre una ventana de Microsoft Edge para que entres a tu cuenta como siempre. CarryIt guarda la sesión "
+    "solo en esta computadora y la usa únicamente para descargar.":
+        "A Microsoft Edge window opens so you can sign in to your account as usual. CarryIt saves the session "
+        "only on this computer and uses it only to download.",
+    "Sesión iniciada": "Signed in",
+    "Sin sesión": "Not signed in",
+    "Iniciar sesión": "Sign in",
+    "Cerrar sesión": "Sign out",
+    "Esperando…": "Waiting…",
+    "¿Cerrar la sesión de {site} en CarryIt?": "Sign out of {site} in CarryIt?",
+    "Se cerró la sesión de {site}.": "Signed out of {site}.",
+    "Entra a tu cuenta de {site} en la ventana que se abrió. CarryIt la cerrará sola cuando termines.":
+        "Sign in to your {site} account in the window that opened. CarryIt will close it when you're done.",
+    "Listo: se guardó tu sesión de {site}.": "Done: your {site} session was saved.",
+    "No se inició sesión en {site}.": "You didn't sign in to {site}.",
+    "No se pudo iniciar sesión: {error}": "Couldn't sign in: {error}",
+    "No se encontró Microsoft Edge ni Google Chrome, que se usan para iniciar sesión.":
+        "Neither Microsoft Edge nor Google Chrome was found; they're used to sign in.",
+    "La ventana para iniciar sesión se cerró antes de abrir. Si Edge ya estaba abierto con esta ventana, "
+    "ciérrala y vuelve a intentarlo.":
+        "The sign-in window closed before it opened. If Edge already had this window open, close it and try again.",
+    "No se pudo abrir la ventana para iniciar sesión (Edge no respondió).":
+        "Couldn't open the sign-in window (Edge didn't respond).",
+    "{site} pide iniciar sesión para descargar esto.": "{site} requires signing in to download this.",
+    "Tu sesión de {site} en CarryIt ya no funciona (quizá caducó).":
+        "Your {site} session in CarryIt no longer works (it may have expired).",
+    "¿Entrar a tu cuenta de {site} ahora? Se abrirá una ventana de Microsoft Edge.":
+        "Sign in to your {site} account now? A Microsoft Edge window will open.",
     "No usar": "Don't use",
     "Comodidad": "Convenience",
     "Detectar enlaces copiados (YouTube, Facebook, TikTok…)": "Detect copied links (YouTube, Facebook, TikTok…)",

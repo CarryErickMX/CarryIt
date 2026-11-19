@@ -170,14 +170,89 @@ def set_cookies_browser(browser: str | None) -> None:
     _cookies_browser = browser if browser in BROWSERS else None
 
 
-def _apply_tools(opts: dict) -> dict:
+def _cookie_messages(browser: str | None) -> dict[str, str]:
+    name = BROWSERS.get(browser or "", "") or _("Tu navegador")
+    return {
+        # Chrome y Edge (y otros basados en Chromium) cifran la sesión desde 2024 con una protección
+        # que solo ellos pueden abrir: cerrarlos no ayuda.
+        "protected": _("{browser} protege tu sesión y no deja que otros programas la usen (Chrome y Edge lo "
+                       "hacen en Windows desde 2024). Entra a tu cuenta desde CarryIt (Ajustes → «Iniciar "
+                       "sesión en sitios») o usa Firefox.").format(browser=name),
+        "locked": _("No se pudo leer la sesión de {browser} porque está abierto. Ciérralo por completo y vuelve "
+                    "a intentarlo, o usa Firefox (en Ajustes).").format(browser=name),
+        "missing": _("No se encontró {browser} en esta computadora, o no tiene una sesión iniciada. En Ajustes "
+                     "elige el navegador que usas.").format(browser=name),
+    }
+
+
+def login_message() -> str:
+    return _("Este sitio pide iniciar sesión para ver este contenido. Entra a tu cuenta desde CarryIt "
+             "(Ajustes → «Iniciar sesión en sitios») y vuelve a intentarlo.")
+
+
+def no_video_message() -> str:
+    return _("Este enlace no tiene video: puede ser una foto o un carrusel de imágenes (para bajarlas elige "
+             "«Imágenes»). Si sí es un video, el sitio puede estar pidiendo iniciar sesión: entra a tu cuenta "
+             "desde CarryIt (Ajustes → «Iniciar sesión en sitios») y vuelve a intentarlo.")
+
+
+def may_need_login(message: str) -> bool:
+    """¿El error se arreglaría entrando a la cuenta del sitio?"""
+    return message in (login_message(), no_video_message()) or is_cookie_message(message)
+
+
+def cookie_problem(text: str, browser: str | None = None) -> str | None:
+    """Si el error es por no poder leer la sesión del navegador, el mensaje que lo explica."""
+    low = text.lower()
+    browser = browser or _cookies_browser
+    if "decrypt" in low or "dpapi" in low or "app-bound" in low or "app_bound" in low:
+        return _cookie_messages(browser)["protected"]
+    if "could not copy" in low and "cookie" in low:
+        return _cookie_messages(browser)["locked"]
+    if "could not find" in low and "cookies database" in low:
+        return _cookie_messages(browser)["missing"]
+    return None
+
+
+def is_cookie_message(message: str) -> bool:
+    return message in _cookie_messages(_cookies_browser).values()
+
+
+def check_cookies_browser(browser: str) -> str | None:
+    """Prueba leer la sesión del navegador (al elegirlo en Ajustes). None si se puede usar."""
+    from yt_dlp.cookies import extract_cookies_from_browser
+    warnings: list[str] = []
+
+    class _Quiet:
+        def debug(self, *_a, **_k): pass
+        def info(self, *_a, **_k): pass
+        def warning(self, msg, *_a, **_k): warnings.append(str(msg))
+        def error(self, msg, *_a, **_k): warnings.append(str(msg))
+
+    try:
+        jar = extract_cookies_from_browser(browser, logger=_Quiet())
+    except Exception as exc:
+        return cookie_problem(f"{exc} {' '.join(warnings)}", browser) or _cookie_messages(browser)["protected"]
+    problem = cookie_problem(" ".join(warnings), browser)
+    if problem:
+        return problem
+    return None if len(jar) else _cookie_messages(browser)["missing"]
+
+
+def _apply_tools(opts: dict, url: str | None = None) -> dict:
+    from . import sessions
     ff = find_ffmpeg()
     if ff:
         opts["ffmpeg_location"] = ff
     dn = find_deno()
     if dn:
         opts["js_runtimes"] = {"deno": {"path": dn}}
-    if _cookies_browser:
+    # Sesiones iniciadas en CarryIt (copia privada: yt-dlp reescribe el archivo al terminar).
+    copy = sessions.cookie_copy()
+    if copy:
+        opts["cookiefile"] = copy
+    # La sesión del navegador solo hace falta si CarryIt no tiene ya una para este sitio.
+    if _cookies_browser and not (url and sessions.has_session_for(url)):
         opts["cookiesfrombrowser"] = (_cookies_browser, None, None, None)
     return opts
 
@@ -196,16 +271,13 @@ def _clean_error(msg: str) -> str:
     if ("no video formats found" in lowered or "there is no video in this post" in lowered
             or "no video could be found" in lowered):
         # Pasa con publicaciones de foto (Instagram, X, Facebook…) o cuando el sitio no da el video sin sesión.
-        return _("Este enlace no tiene video: puede ser una foto o un carrusel de imágenes (para bajarlas elige "
-                 "«Imágenes»). Si sí es un video, el sitio puede estar pidiendo iniciar sesión: en Ajustes "
-                 "elige el navegador donde tienes tu sesión abierta y vuelve a intentarlo.")
-    if ("could not copy" in lowered and "cookie" in lowered) or "failed to decrypt" in lowered:
-        return _("No se pudo leer la sesión del navegador. Ciérralo por completo y reintenta, "
-                 "o elige otro navegador en Ajustes (Firefox es el más compatible).")
+        return no_video_message()
+    cookie_msg = cookie_problem(lowered)
+    if cookie_msg:
+        return cookie_msg
     if ("login" in lowered or "logged-in" in lowered or "authentication" in lowered
             or "cookies" in lowered or "sign in" in lowered):
-        return _("Este sitio pide iniciar sesión para ver este contenido. En Ajustes elige el navegador "
-                 "donde tienes tu sesión abierta y vuelve a intentarlo.")
+        return login_message()
     if "unable to download webpage" in lowered or "getaddrinfo" in lowered:
         return _("No hay conexión con el sitio. Revisa tu internet.")
     if "ffmpeg" in lowered and "not found" in lowered:
@@ -274,7 +346,7 @@ def fetch_info(url: str, playlist: bool) -> MediaInfo:
         "skip_download": True,
         "extract_flat": "in_playlist",
         "noplaylist": not playlist,
-    })
+    }, url)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -687,7 +759,7 @@ class DownloadTask:
     def _attempt(self, logger: _Logger, extra: dict) -> int:
         """Un intento completo con yt-dlp. Devuelve el código de salida (0 = todo bien)."""
         parsed = yt_dlp.parse_options(build_args(self.options))
-        opts = _apply_tools(dict(parsed.ydl_opts))
+        opts = _apply_tools(dict(parsed.ydl_opts), self.options.url)
         opts.update(
             quiet=True,
             no_warnings=True,

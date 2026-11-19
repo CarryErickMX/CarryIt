@@ -90,12 +90,15 @@ def supported(url: str) -> bool:
 # --------------------------------------------------------------------------- #
 class _Capture(logging.Handler):
     def __init__(self) -> None:
-        super().__init__(logging.ERROR)
+        super().__init__(logging.WARNING)
         self.thread = threading.get_ident()
         self.messages: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.thread == self.thread:
+        # Errores, y los avisos de cookies (p. ej. «Failed to decrypt cookie»): explican por qué el sitio
+        # luego pide iniciar sesión.
+        if record.thread == self.thread and (record.levelno >= logging.ERROR or "cookie" in record.name
+                                             or "cookie" in str(record.msg).lower()):
             try:
                 self.messages.append(record.getMessage())
             except Exception:
@@ -103,13 +106,16 @@ class _Capture(logging.Handler):
 
 
 def login_message() -> str:
-    return _("Este sitio pide iniciar sesión para ver este contenido. En Ajustes elige el navegador "
-             "donde tienes tu sesión abierta y vuelve a intentarlo.")
+    return core.login_message()
 
 
 def _clean_error(messages: list[str]) -> str:
     text = " ".join(messages)
     low = text.lower()
+    # Si no se pudo leer la sesión del navegador, decirlo (si no, el sitio solo dice «inicia sesión»).
+    cookie_msg = core.cookie_problem(text) if core._cookies_browser else None
+    if cookie_msg:
+        return cookie_msg
     if any(k in low for k in ("authrequired", "authorizationerror", "login", "cookies", "account",
                               "redirected to", "not logged in", "authentication", "401", "unauthorized")):
         return login_message()
@@ -125,7 +131,7 @@ def _clean_error(messages: list[str]) -> str:
     return (_("Error de descarga:") + " " + first[:200]) if first else _("No se encontraron imágenes en este enlace.")
 
 
-def _configure(output_dir: str, directory: list[str]) -> None:
+def _configure(output_dir: str, directory: list[str], url: str = "") -> None:
     config, *_rest = _gdl()
     config.clear()
     config.set(("extractor",), "base-directory", output_dir)
@@ -139,8 +145,15 @@ def _configure(output_dir: str, directory: list[str]) -> None:
     config.set(("extractor",), "sleep-429", 10)
     config.set(("output",), "mode", "null")
     _patch_waits()
+    # gallery-dl acepta una sola fuente de cookies: la sesión iniciada en CarryIt para este sitio; si no
+    # hay, la del navegador elegido en Ajustes; si tampoco, las demás sesiones de CarryIt.
+    from . import sessions
     browser = core._cookies_browser
-    if browser:
+    own = sessions.cookie_copy()
+    if own and (sessions.has_session_for(url) or not browser):
+        config.set(("extractor",), "cookies", own)
+        config.set(("extractor",), "cookies-update", False)
+    elif browser:
         config.set(("extractor",), "cookies", [browser])
 
 
@@ -208,7 +221,7 @@ def probe(url: str) -> core.MediaInfo:
     logging.getLogger().addHandler(capture)
     try:
         with _lock:
-            _configure(os.getcwd(), [])
+            _configure(os.getcwd(), [], url)
             extr = extractor.find(url)
             if extr is None:
                 raise RuntimeError(_("CarryIt no sabe sacar imágenes de este sitio."))
@@ -349,7 +362,7 @@ class ImageTask:
     def _run_thumbnail(self) -> None:
         import yt_dlp
         opts = core._apply_tools({"quiet": True, "no_warnings": True, "skip_download": True,
-                                  "noplaylist": True, "logger": core._Logger()})
+                                  "noplaylist": True, "logger": core._Logger()}, self.options.url)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(self.options.url, download=False)
@@ -431,7 +444,7 @@ class ImageTask:
         logging.getLogger().addHandler(capture)
         try:
             with _lock:
-                _configure(self.options.output_dir, folder)
+                _configure(self.options.output_dir, folder, self.options.url)
                 try:
                     status = Job(meta_extr or self.options.url).run()
                 except exception.TerminateExtraction:

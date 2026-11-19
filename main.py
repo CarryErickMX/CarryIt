@@ -67,6 +67,17 @@ def selftest(url: str, out: str) -> bool:
     except Exception as exc:
         results["images_engine"] = f"error: {exc!r}"
 
+    # Inicio de sesión en sitios: necesita el cliente WebSocket y sqlite3 empaquetados (Edge es opcional aquí).
+    try:
+        import sqlite3  # noqa: F401
+        import websockets.sync.client  # noqa: F401
+        from carryit import sessions
+        results["login_browser"] = sessions.find_browser()
+        results["sessions"] = "ok" if sessions.site_for_url("https://www.instagram.com/p/x/") == "instagram" \
+            else "error: sitios"
+    except Exception as exc:
+        results["sessions"] = f"error: {exc!r}"
+
     # La interfaz se crea y se cierra sola (comprueba que temas, fuentes e íconos vengan incluidos).
     try:
         from carryit import gui
@@ -100,6 +111,7 @@ def selftest(url: str, out: str) -> bool:
         done.wait(600)
         results[name] = last
     ok = (results.get("gui") == "ok" and bool(results["ffmpeg"]) and results.get("images_engine") == "ok"
+          and results.get("sessions") == "ok"
           and all(results[k].get("type") == "done" for k in ("audio_mp3", "video_mp4", "image_jpg")))
     results["ok"] = ok
     with open(os.path.join(out, "selftest.json"), "w", encoding="utf-8") as fh:

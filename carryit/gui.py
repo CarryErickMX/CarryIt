@@ -1089,8 +1089,15 @@ class App(ctk.CTk):
                         try:
                             info = images.probe(url)
                         except Exception as image_error:
-                            # El mensaje más útil: «inicia sesión» si el sitio lo pide; si no, el del video.
-                            useful = image_error if str(image_error) == images.login_message() else video_error
+                            # El mensaje más útil: primero si no se pudo leer la sesión del navegador; luego
+                            # «inicia sesión» si el sitio lo pide; si no, el del video.
+                            if core.is_cookie_message(str(video_error)):
+                                useful = video_error
+                            elif core.is_cookie_message(str(image_error)) or \
+                                    str(image_error) == images.login_message():
+                                useful = image_error
+                            else:
+                                useful = video_error
                             raise RuntimeError(str(useful)) from None
                 self.events.put(("info", token, info))
                 if info.thumbnail:
@@ -1278,7 +1285,33 @@ class App(ctk.CTk):
         """Aplica lo guardado en la ventana de Ajustes."""
         ctk.set_appearance_mode(self.settings.appearance)
         core.set_max_parallel(self.settings.max_parallel)
-        core.set_cookies_browser(self.settings.cookies_browser or None)
+        browser = self.settings.cookies_browser or None
+        if browser and browser != core._cookies_browser:
+            # Recién elegido: se prueba ya, para avisar ahora y no cuando falle una descarga.
+            threading.Thread(target=lambda: self.events.put(
+                ("cookies_check", None, (browser, core.check_cookies_browser(browser)))), daemon=True).start()
+        core.set_cookies_browser(browser)
+
+    def _offer_login(self, message: str) -> None:
+        """Si el análisis falló porque el sitio pide cuenta, ofrece entrar a ella ahí mismo."""
+        from . import sessions
+        url = self._normalize_url(self.url_entry.get().strip())
+        key = sessions.site_for_url(url)
+        if not key or not core.may_need_login(message):
+            return
+        site = sessions.SITES[key].name
+        again = sessions.logged_in(key)
+        question = (_("Tu sesión de {site} en CarryIt ya no funciona (quizá caducó).") if again
+                    else _("{site} pide iniciar sesión para descargar esto.")).format(site=site)
+        if messagebox.askyesno(APP_NAME, question + "\n\n" + _("¿Entrar a tu cuenta de {site} ahora? Se abrirá una "
+                                                              "ventana de Microsoft Edge.").format(site=site)):
+            from .dialogs import LoginDialog
+            LoginDialog(self, only=key, on_done=lambda _k: self.analyze())
+
+    def _cookies_checked(self, payload) -> None:
+        browser, problem = payload
+        if problem and browser == self.settings.cookies_browser:
+            messagebox.showwarning(APP_NAME, problem)
 
     def resume(self, row: DownloadRow) -> None:
         """Reanuda una descarga pausada: yt-dlp continúa desde lo que ya había bajado."""
@@ -1362,6 +1395,8 @@ class App(ctk.CTk):
                     self._ffmpeg_finished(payload)
                 elif kind == "app_release":
                     self._show_app_release(payload)
+                elif kind == "cookies_check":
+                    self._cookies_checked(payload)
                 elif key != self._analyze_token:
                     continue  # resultado de un análisis viejo
                 elif kind == "info":
@@ -1372,6 +1407,7 @@ class App(ctk.CTk):
                     self.analyze_btn.configure(state="normal", text=_("Analizar"))
                     self.info_title.configure(text=_("No se pudo analizar el enlace"))
                     self.info_meta.configure(text=payload)
+                    self.after(200, lambda msg=payload: self._offer_login(msg))
         except queue.Empty:
             pass
         self.after(80, self._poll)
