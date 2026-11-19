@@ -2,11 +2,17 @@
 
 El código propio de CarryIt (carpeta `carryit/`, `main.py` y los scripts del repositorio) se distribuye con la **licencia MIT** (archivo `LICENSE`).
 
-El instalador y la versión portátil incluyen además los componentes siguientes, cada uno con su propia licencia. Como algunos son **GPL** (FFmpeg y mutagen), **la distribución binaria completa se ofrece bajo los términos de la GPL versión 3**. El código fuente de cada componente está disponible en los enlaces indicados, y el de esta app en su repositorio.
+El instalador y la versión portátil incluyen además los componentes siguientes, cada uno con su propia licencia. Como algunos son **GPL**, la distribución binaria se ofrece así:
+
+- **El programa de Python empaquetado** (`CarryIt.exe` con sus bibliotecas, incluidos gallery-dl —GPL-2.0 únicamente— y mutagen) se distribuye bajo los términos de la **GPL versión 2**.
+- **FFmpeg** (`ffmpeg/`) es un programa aparte, que CarryIt solo ejecuta, y se distribuye bajo la **GPL versión 3**.
+
+El código fuente de cada componente está disponible en los enlaces indicados, y el de esta app en su repositorio.
 
 | Componente | Uso en la app | Licencia | Código fuente |
 |---|---|---|---|
 | yt-dlp | Motor de descarga | Unlicense (dominio público) | https://github.com/yt-dlp/yt-dlp |
+| gallery-dl | Motor de descarga de imágenes | GPL-2.0 (solo versión 2) | https://github.com/mikf/gallery-dl |
 | yt-dlp-ejs | Scripts para resolver los retos de YouTube | Unlicense, MIT e ISC | https://github.com/yt-dlp/ejs |
 | FFmpeg (compilación de yt-dlp/FFmpeg-Builds) | Unir video y audio, convertir formatos | GPL versión 3 | https://github.com/yt-dlp/FFmpeg-Builds · https://ffmpeg.org |
 | Deno | Motor JavaScript que usa yt-dlp | MIT | https://github.com/denoland/deno |

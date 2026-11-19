@@ -35,7 +35,13 @@ COMPAT = _("Compatible con todo (hasta 1080p)")   # solo MP4: H.264 + AAC
 HEIGHT_LABELS = {2160: "2160p (4K)", 1440: "1440p (2K)", 1080: "1080p (Full HD)", 720: "720p (HD)"}
 LOSSLESS_LABEL = _("Sin pérdida")
 SUBS_LABELS = {"none": _("Sin subtítulos"), "es": _("Español"), "en": _("Inglés"), "es_en": _("Español e inglés")}
-MODE_LABELS = {"video": _("Video"), "audio": _("Solo audio")}
+MODE_LABELS = {"video": _("Video"), "audio": _("Solo audio"), "images": _("Imágenes")}
+IMAGE_QUALITY = _("Original del sitio")
+
+
+def images_probe_limit() -> int:
+    from . import images
+    return images.PROBE_LIMIT
 
 
 def height_label(h: int) -> str:
@@ -409,7 +415,8 @@ class DownloadRow(ctk.CTkFrame):
         self.btn.pack(side="right")
         # Pausar: solo mientras descarga (al reanudar sigue desde lo ya bajado).
         self.pause_btn = outline_button(actions, _("Pausar"), self._pause, width=80, height=26)
-        self.pause_btn.pack(side="right", padx=(0, 6))
+        if getattr(task, "can_pause", True):
+            self.pause_btn.pack(side="right", padx=(0, 6))
         self._title_locked = not title.startswith("http")
         self.error_message = ""
         self._last_fraction = 0.0
@@ -437,7 +444,8 @@ class DownloadRow(ctk.CTkFrame):
             if ev.get("index") and ev.get("total"):
                 prefix = f"({ev['index']}/{ev['total']}) {shorten(ev.get('title') or '', 40)} · "
             frac = ev.get("fraction")
-            what = _("Descargando audio") if ev["stream"] == "audio" else _("Descargando video")
+            what = {"audio": _("Descargando audio"), "image": _("Descargando imágenes")}.get(
+                ev["stream"], _("Descargando video"))
             if frac is None:
                 self._busy(True)
                 text = f"{prefix}{what}… {fmt_bytes(ev.get('downloaded'))}"
@@ -609,7 +617,7 @@ class App(ctk.CTk):
         title_font = ctk.CTkFont(size=26, weight="bold")
         ctk.CTkLabel(name, text="Carry", font=title_font).pack(side="left")
         ctk.CTkLabel(name, text="It", font=title_font, text_color=("#D98200", "#FFB300")).pack(side="left")
-        ctk.CTkLabel(f, text=_("Descarga videos o solo el audio, en la calidad que quieras"), text_color=MUTED,
+        ctk.CTkLabel(f, text=_("Descarga videos, audio o imágenes, en la calidad que quieras"), text_color=MUTED,
                      anchor="w").grid(row=1, column=1, sticky="nw")
         buttons = ctk.CTkFrame(f, fg_color="transparent")
         buttons.grid(row=0, column=2, rowspan=2, padx=(8, 0))
@@ -704,8 +712,9 @@ class App(ctk.CTk):
         extras.grid(row=1, column=0, columnspan=6, sticky="ew", padx=12, pady=self._pad)
         extras.grid_columnconfigure(0, weight=1)
         self.playlist_var = ctk.BooleanVar(value=self.settings.playlist)
-        ctk.CTkCheckBox(extras, text=_("Si el enlace es de una lista, descargarla completa"),
-                        variable=self.playlist_var, command=self._on_playlist_toggle).grid(row=0, column=0, sticky="w")
+        self.playlist_check = ctk.CTkCheckBox(extras, text=_("Si el enlace es de una lista, descargarla completa"),
+                                              variable=self.playlist_var, command=self._on_playlist_toggle)
+        self.playlist_check.grid(row=0, column=0, sticky="w")
         # Subtítulos: solo en modo video.
         self.subs_frame = ctk.CTkFrame(extras, fg_color="transparent")
         self.subs_frame.grid(row=0, column=1, sticky="e")
@@ -719,8 +728,9 @@ class App(ctk.CTk):
         trim = ctk.CTkFrame(card, fg_color="transparent")
         trim.grid(row=2, column=0, columnspan=6, sticky="ew", padx=12, pady=self._pad)
         self.trim_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(trim, text=_("Solo una parte:"), variable=self.trim_var,
-                        command=self._on_trim_toggle).pack(side="left")
+        self.trim_check = ctk.CTkCheckBox(trim, text=_("Solo una parte:"), variable=self.trim_var,
+                                          command=self._on_trim_toggle)
+        self.trim_check.pack(side="left")
         ctk.CTkLabel(trim, text=_("desde")).pack(side="left", padx=(10, 4))
         self.trim_from = ctk.CTkEntry(trim, width=80, placeholder_text="0:00")
         self.trim_from.pack(side="left")
@@ -813,7 +823,8 @@ class App(ctk.CTk):
         ff = "FFmpeg OK" if core.find_ffmpeg() else \
             _("FFmpeg NO encontrado (no se podrá convertir a MP3 ni unir audio y video)")
         dn = "Deno OK" if core.find_deno() else _("Deno no encontrado (pueden faltar formatos)")
-        return f"v{__version__} · yt-dlp {core.ytdlp_version()} · {ff} · {dn}"
+        from . import images
+        return f"v{__version__} · yt-dlp {core.ytdlp_version()} · gallery-dl {images.version()} · {ff} · {dn}"
 
     def _build_footer(self) -> None:
         f = ctk.CTkFrame(self, fg_color="transparent")
@@ -831,7 +842,7 @@ class App(ctk.CTk):
         self.app_update_btn = ctk.CTkButton(f, text="", width=170, height=24, font=small,
                                             fg_color=OK_COLOR, hover_color=("#1B5E20", "#43A047"),
                                             text_color="white", command=self._open_app_release)
-        self.update_btn = ctk.CTkButton(f, text=_("Actualizar yt-dlp"), width=130, height=24,
+        self.update_btn = ctk.CTkButton(f, text=_("Actualizar motores"), width=140, height=24,
                                         fg_color="transparent", border_width=1,
                                         text_color=("gray10", "gray90"), font=small,
                                         command=self._on_update_button)
@@ -856,10 +867,12 @@ class App(ctk.CTk):
     def _show_about(self) -> None:
         text = (f"{APP_NAME} {__version__}\n"
                 + _("Creado por {author}").format(author=AUTHOR) + "\n\n"
-                + _("Motor de descarga: yt-dlp {version}").format(version=core.ytdlp_version()) + "\n"
+                + _("Motores de descarga: yt-dlp {ytdlp} (videos) y gallery-dl {gdl} (imágenes)").format(
+                    ytdlp=core.ytdlp_version(), gdl=images.version()) + "\n"
                 + _("Conversión: FFmpeg · Retos de YouTube: Deno · Interfaz: CustomTkinter") + "\n\n"
-                + _("Software libre con licencia MIT. Las licencias de los componentes están en "
-                    "THIRD_PARTY_NOTICES.md, junto al programa.") + "\n\n" + self.LEGAL)
+                + _("Software libre: el código de la app usa la licencia MIT y el programa completo se "
+                    "distribuye bajo la GPL. Los detalles están en THIRD_PARTY_NOTICES.md, junto al "
+                    "programa.") + "\n\n" + self.LEGAL)
         title = _("Acerca de {app}").format(app=APP_NAME)
         if GITHUB_REPO:
             if messagebox.askyesno(title, text + "\n\n" + _("¿Abrir la página del proyecto?")):
@@ -890,7 +903,25 @@ class App(ctk.CTk):
     def _refresh_mode(self) -> None:
         if hasattr(self, "tags_btn"):
             self._update_tags_button()
-        if self.mode == "audio":
+        # «Solo una parte» y «lista completa» no aplican a imágenes (las galerías se bajan completas).
+        if hasattr(self, "trim_check"):
+            if self.mode == "images":
+                self.trim_var.set(False)
+                self._on_trim_toggle()
+                self.trim_check.configure(state="disabled")
+            else:
+                self.trim_check.configure(state="normal")
+        if hasattr(self, "playlist_check"):
+            self.playlist_check.configure(state="disabled" if self.mode == "images" else "normal")
+        if self.mode == "images":
+            from . import images
+            self.subs_frame.grid_remove()
+            self.format_menu.configure(values=images.IMAGE_FORMATS)
+            self.format_menu.set(self.settings.image_format if self.settings.image_format in images.IMAGE_FORMATS
+                                 else images.IMAGE_FORMATS[0])
+            self.quality_menu.configure(values=[IMAGE_QUALITY], state="disabled")
+            self.quality_menu.set(IMAGE_QUALITY)
+        elif self.mode == "audio":
             self.subs_frame.grid_remove()
             self.format_menu.configure(values=core.AUDIO_FORMATS)
             self.format_menu.set(self.settings.audio_format)
@@ -916,7 +947,9 @@ class App(ctk.CTk):
         self.settings.save()
 
     def _on_format_change(self) -> None:
-        if self.mode == "audio":
+        if self.mode == "images":
+            pass
+        elif self.mode == "audio":
             self._refresh_audio_quality()
         else:
             # «Compatible con todo» solo existe en MP4: al cambiar de formato se actualiza la lista.
@@ -929,7 +962,9 @@ class App(ctk.CTk):
     def _save_choices(self) -> None:
         s = self.settings
         s.mode = self.mode
-        if self.mode == "audio":
+        if self.mode == "images":
+            s.image_format = self.format_menu.get()
+        elif self.mode == "audio":
             s.audio_format = self.format_menu.get()
             if self.quality_menu.get() != LOSSLESS_LABEL:
                 s.audio_quality = self.quality_menu.get()
@@ -1036,9 +1071,27 @@ class App(ctk.CTk):
         self.info_title.configure(text=_("Analizando enlace…"))
         self.info_meta.configure(text=url)
 
+        mode = self.mode
+
         def work():
+            from . import images
             try:
-                info = core.fetch_info(url, playlist)
+                if mode == "images":
+                    # Fotos con gallery-dl; si es un video (YouTube…), su portada.
+                    info = images.probe(url) if images.supported(url) else images.probe_thumbnail(url)
+                else:
+                    try:
+                        info = core.fetch_info(url, playlist)
+                    except Exception as video_error:
+                        # ¿No hay video? Si el sitio es de fotos (Instagram, X, Pinterest…), se prueban imágenes.
+                        if not images.supported(url):
+                            raise
+                        try:
+                            info = images.probe(url)
+                        except Exception as image_error:
+                            # El mensaje más útil: «inicia sesión» si el sitio lo pide; si no, el del video.
+                            useful = image_error if str(image_error) == images.login_message() else video_error
+                            raise RuntimeError(str(useful)) from None
                 self.events.put(("info", token, info))
                 if info.thumbnail:
                     self.events.put(("thumb", token, core.fetch_thumbnail(info.thumbnail)))
@@ -1054,7 +1107,16 @@ class App(ctk.CTk):
         self.info_title.configure(text=info.title)
         self._tags = None
         duration = _("Duración {time}").format(time=fmt_time(info.duration))
-        if info.is_playlist:
+        if info.is_images and info.thumb_only:
+            meta = f"{duration} · " + _("se descargará la portada del video")
+        elif info.is_images:
+            meta = _("1 imagen") if info.count == 1 else (
+                _("{n} imágenes").format(n=info.count) if info.count < images_probe_limit()
+                else _("más de {n} imágenes").format(n=info.count))
+            if self.mode != "images":          # es una publicación de fotos: se cambia a «Imágenes»
+                self.mode_btn.set("images")
+                self._on_mode_change()
+        elif info.is_playlist:
             meta = _("Lista de reproducción · {n} videos").format(n=info.count)
         elif info.audio_only:
             meta = f"{duration} · " + _("solo audio")
@@ -1120,7 +1182,7 @@ class App(ctk.CTk):
         s = self.settings
         out = s.output_dir
         if s.split_folders:
-            out = os.path.join(out, "Audio" if s.mode == "audio" else "Videos")
+            out = os.path.join(out, {"audio": "Audio", "images": _("Imágenes")}.get(s.mode, "Videos"))
         return core.DownloadOptions(
             url=url,
             output_dir=out,
@@ -1136,6 +1198,7 @@ class App(ctk.CTk):
             # (s.subtitles es un código: "none", "es", "en" o "es_en")
             keep_subtitle_files=s.keep_subtitle_files,
             rate_limit=s.rate_limit,
+            image_format=s.image_format,
         )
 
     def download(self) -> None:
@@ -1177,7 +1240,7 @@ class App(ctk.CTk):
     def _confirm_repeat(self, opts: core.DownloadOptions, title: str) -> bool:
         """Si ya se descargó lo mismo (y el archivo sigue ahí), pregunta antes de repetir."""
         from . import history
-        prev = history.find(core.media_key(opts.url, opts.playlist))
+        prev = history.find(core.media_key(opts.url, opts.playlist, opts.mode))
         if not prev:
             return True
         when = time.strftime("%d/%m/%Y", time.localtime(prev.date))
@@ -1198,7 +1261,7 @@ class App(ctk.CTk):
                 title = os.path.splitext(os.path.basename(files[0]))[0] if len(files) == 1 \
                     else os.path.basename(os.path.dirname(files[0]))
             history.add(history.HistoryEntry(
-                key=core.media_key(o.url, o.playlist), url=o.url, title=title,
+                key=core.media_key(o.url, o.playlist, o.mode), url=o.url, title=title,
                 kind=self._badge(o), files=files, folder=os.path.dirname(files[0])))
         if self.settings.notify and self.focus_displayof() is None:
             notify_attention(self)
@@ -1226,6 +1289,8 @@ class App(ctk.CTk):
         self._start_task(opts, title, resume_files=partial)
 
     def _badge(self, o: core.DownloadOptions) -> str:
+        if o.mode == "images":
+            return _("Imágenes") + (" JPG" if o.image_format == "JPG" else " · " + _("original"))
         if o.mode == "audio":
             q = "" if o.audio_format in core.LOSSLESS_AUDIO else f" {o.audio_bitrate}k"
             text = f"{o.audio_format}{q}"
@@ -1249,7 +1314,12 @@ class App(ctk.CTk):
         if self.empty_lbl.winfo_ismapped():
             self.empty_lbl.pack_forget()
         task_id = next(self._ids)
-        task = core.DownloadTask(opts, lambda ev, i=task_id: self.events.put(("task", i, ev)), resume_files)
+        if opts.mode == "images":
+            from .images import ImageTask
+            task_cls = ImageTask
+        else:
+            task_cls = core.DownloadTask
+        task = task_cls(opts, lambda ev, i=task_id: self.events.put(("task", i, ev)), resume_files)
         row = DownloadRow(self.list_frame, self, task, title, self._badge(opts))
         existing = [r for r in self.rows.values() if r.winfo_exists()]
         pack = {"fill": "x", "padx": 4, "pady": 4}
@@ -1317,10 +1387,8 @@ class App(ctk.CTk):
         if self._pending_update:
             return
         self.update_btn.configure(state="disabled", text=_("Buscando actualización…"))
-        current = core.ytdlp_version()
-
         def work():
-            self.events.put(("update", None, (manual, updater.check_and_update(current))))
+            self.events.put(("update", None, (manual, updater.check_and_update())))
             release = updater.check_app_release()
             if release:
                 self.events.put(("app_release", None, release))
@@ -1334,27 +1402,27 @@ class App(ctk.CTk):
 
     def _update_finished(self, payload) -> None:
         manual, res = payload
-        self.update_btn.configure(state="normal", text=_("Actualizar yt-dlp"))
+        self.update_btn.configure(state="normal", text=_("Actualizar motores"))
         if res["status"] != "error":
             self.settings.last_update_check = time.time()
             self.settings.save()
         if res["status"] == "updated":
             self._pending_update = res["version"]
-            self.update_btn.configure(text=_("Reiniciar para usar yt-dlp {version}").format(version=res["version"]),
+            self.update_btn.configure(text=_("Reiniciar para actualizar"),
                                       fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color=ACCENT_TEXT,
-                                      border_width=0, width=220)
+                                      border_width=0, width=200)
             if manual and messagebox.askyesno(
-                    APP_NAME, _("Se descargó yt-dlp {version}.").format(version=res["version"]) + "\n\n"
+                    APP_NAME, _("Se descargaron versiones nuevas: {version}.").format(version=res["version"]) + "\n\n"
                     + _("¿Reiniciar la app ahora para usarlo?")):
                 self._restart()
         elif res["status"] == "current":
             if manual:
-                messagebox.showinfo(APP_NAME, _("Ya tienes la versión más reciente de yt-dlp ({version}).").format(
-                    version=res["version"]))
+                messagebox.showinfo(APP_NAME, _("Ya tienes las versiones más recientes de los motores ({version}).")
+                                    .format(version=res["version"]))
         else:
             core.log.warning("No se pudo actualizar yt-dlp: %s", res["message"])
             if manual:
-                messagebox.showerror(APP_NAME, _("No se pudo actualizar yt-dlp:") + f"\n\n{res['message']}")
+                messagebox.showerror(APP_NAME, _("No se pudieron actualizar los motores:") + f"\n\n{res['message']}")
 
     def _restart(self) -> None:
         if any(r.state == "running" for r in self.rows.values()):

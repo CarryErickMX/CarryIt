@@ -56,6 +56,7 @@ class Settings:
     keep_subtitle_files: bool = False  # además de incrustarlos, guardar el .srt aparte
     rate_limit: str = ""             # "" = sin límite; p. ej. "2M"
     cookies_browser: str = ""        # navegador con sesión iniciada para sitios que la piden
+    image_format: str = "JPG"        # modo Imágenes: JPG (convierte WEBP/AVIF) u Original
     schema: int = 1                  # versión del formato de este archivo (para migraciones)
 
     @classmethod
@@ -88,6 +89,10 @@ class Settings:
             self.subtitles = "none"
         if self.language not in ("auto", "es", "en"):
             self.language = "auto"
+        if self.mode not in ("video", "audio", "images"):
+            self.mode = "video"
+        if self.image_format not in ("JPG", "Original"):
+            self.image_format = "JPG"
         if self.schema < 2:
             # 1.0.1: «Compatible con todo» pasa a ser la calidad predeterminada (antes era «Mejor calidad»,
             # que en 4K da archivos AV1/VP9 que algunos reproductores no abren).

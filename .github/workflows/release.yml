@@ -77,8 +77,9 @@ jobs:
           if ($r.gui -ne "ok") { throw "La interfaz no abrió: $($r.gui)" }
           if (-not $r.ffmpeg) { throw "FFmpeg no quedó incluido" }
           if (-not $r.deno)   { throw "Deno no quedó incluido" }
+          if ($r.images_engine -ne "ok") { throw "El motor de imágenes no quedó completo: $($r.images_engine)" }
           # Las descargas pueden fallar aquí porque YouTube suele bloquear servidores de nube.
-          foreach ($k in "audio_mp3", "video_mp4") {
+          foreach ($k in "audio_mp3", "video_mp4", "image_jpg") {
             if ($r.$k.type -ne "done") { Write-Output "::warning::Descarga de prueba $k no terminó: $($r.$k.message)" }
           }
 

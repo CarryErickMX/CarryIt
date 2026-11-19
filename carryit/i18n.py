@@ -51,7 +51,7 @@ def _(text: str) -> str:
 # --------------------------------------------------------------------------- #
 EN: dict[str, str] = {
     # --- Ventana principal ---
-    "Descarga videos o solo el audio, en la calidad que quieras": "Download videos or just the audio, in the quality you want",
+    "Descarga videos, audio o imágenes, en la calidad que quieras": "Download videos, audio or images, in the quality you want",
     "Historial": "History",
     "Ajustes": "Settings",
     "Pega un enlace (YouTube, Facebook, TikTok, X…) o escribe qué quieres buscar":
@@ -75,6 +75,13 @@ EN: dict[str, str] = {
     "Descargar como": "Download as",
     "Video": "Video",
     "Solo audio": "Audio only",
+    "Imágenes": "Images",
+    "Original del sitio": "As on the site",
+    "original": "original",
+    "1 imagen": "1 image",
+    "{n} imágenes": "{n} images",
+    "más de {n} imágenes": "more than {n} images",
+    "se descargará la portada del video": "the video's thumbnail will be downloaded",
     "Formato": "Format",
     "Calidad": "Quality",
     "Mejor calidad": "Best quality",
@@ -132,13 +139,14 @@ EN: dict[str, str] = {
     "FFmpeg quedó instalado.": "FFmpeg is installed.",
     "No se pudo instalar FFmpeg automáticamente.": "FFmpeg couldn't be installed automatically.",
     "Instálalo con: winget install Gyan.FFmpeg": "Install it with: winget install Gyan.FFmpeg",
-    "Actualizar yt-dlp": "Update yt-dlp",
+    "Actualizar motores": "Update engines",
     "Buscando actualización…": "Checking for updates…",
-    "Reiniciar para usar yt-dlp {version}": "Restart to use yt-dlp {version}",
-    "Se descargó yt-dlp {version}.": "yt-dlp {version} was downloaded.",
+    "Reiniciar para actualizar": "Restart to update",
+    "Se descargaron versiones nuevas: {version}.": "New versions were downloaded: {version}.",
     "¿Reiniciar la app ahora para usarlo?": "Restart the app now to use it?",
-    "Ya tienes la versión más reciente de yt-dlp ({version}).": "You already have the latest yt-dlp ({version}).",
-    "No se pudo actualizar yt-dlp:": "Couldn't update yt-dlp:",
+    "Ya tienes las versiones más recientes de los motores ({version}).":
+        "You already have the latest engine versions ({version}).",
+    "No se pudieron actualizar los motores:": "Couldn't update the engines:",
     "Hay descargas en curso. Reinicia cuando terminen.": "Downloads are in progress. Restart when they finish.",
     "Nueva versión {version} disponible": "New version {version} available",
     "PyPI no tiene una versión compatible.": "PyPI has no compatible version.",
@@ -159,12 +167,14 @@ EN: dict[str, str] = {
         "Only download content you own or that its author allows you to download. Downloading YouTube videos "
         "may violate its Terms of Service; you are responsible for how you use it.",
     "Creado por {author}": "Created by {author}",
-    "Motor de descarga: yt-dlp {version}": "Download engine: yt-dlp {version}",
+    "Motores de descarga: yt-dlp {ytdlp} (videos) y gallery-dl {gdl} (imágenes)":
+        "Download engines: yt-dlp {ytdlp} (videos) and gallery-dl {gdl} (images)",
     "Conversión: FFmpeg · Retos de YouTube: Deno · Interfaz: CustomTkinter":
         "Conversion: FFmpeg · YouTube challenges: Deno · Interface: CustomTkinter",
-    "Software libre con licencia MIT. Las licencias de los componentes están en THIRD_PARTY_NOTICES.md, "
-    "junto al programa.":
-        "Free software under the MIT license. Component licenses are in THIRD_PARTY_NOTICES.md, next to the program.",
+    "Software libre: el código de la app usa la licencia MIT y el programa completo se distribuye bajo la GPL. "
+    "Los detalles están en THIRD_PARTY_NOTICES.md, junto al programa.":
+        "Free software: the app's code uses the MIT license and the complete program is distributed under the "
+        "GPL. Details are in THIRD_PARTY_NOTICES.md, next to the program.",
     "¿Abrir la página del proyecto?": "Open the project page?",
 
     # --- Filas de descarga ---
@@ -181,6 +191,9 @@ EN: dict[str, str] = {
     "El sitio rechazó la conexión, reintentando ({n}/{total})…": "The site refused the connection, retrying ({n}/{total})…",
     "Descargando video": "Downloading video",
     "Descargando audio": "Downloading audio",
+    "Descargando imágenes": "Downloading images",
+    "Buscando las imágenes…": "Looking for the images…",
+    "El sitio pidió esperar un momento ({s} s)…": "The site asked to wait a moment ({s} s)…",
     "de {size}": "of {size}",
     "quedan {time}": "{time} left",
     "Completado": "Completed",
@@ -209,6 +222,16 @@ EN: dict[str, str] = {
     "El video tiene restricción de edad (requiere iniciar sesión).": "The video is age-restricted (sign-in required).",
     "El video no está disponible.": "The video isn't available.",
     "El enlace no es válido.": "The link isn't valid.",
+    "Este enlace no tiene video: puede ser una foto o un carrusel de imágenes (para bajarlas elige «Imágenes»). "
+    "Si sí es un video, el sitio puede estar pidiendo iniciar sesión: en Ajustes elige el navegador donde tienes "
+    "tu sesión abierta y vuelve a intentarlo.":
+        "This link has no video: it may be a photo or an image carousel (to get them, choose “Images”). "
+        "If it is a video, the site may require signing in: in Settings, choose the browser where you're signed "
+        "in and try again.",
+    "La publicación no existe o fue borrada.": "The post doesn't exist or was deleted.",
+    "CarryIt no sabe sacar imágenes de este sitio.": "CarryIt can't get images from this site.",
+    "No se encontraron imágenes en este enlace.": "No images were found at this link.",
+    "Este video no tiene portada para descargar.": "This video has no thumbnail to download.",
     "No se pudo leer la sesión del navegador. Ciérralo por completo y reintenta, o elige otro navegador en "
     "Ajustes (Firefox es el más compatible).":
         "Couldn't read the browser session. Close the browser completely and retry, or choose another browser "
@@ -221,9 +244,9 @@ EN: dict[str, str] = {
     "No se encontró FFmpeg; es necesario para unir video/audio y convertir a MP3.":
         "FFmpeg wasn't found; it's needed to merge video/audio and convert to MP3.",
     "El sitio rechazó la descarga (error 403) varias veces. Presiona Reintentar en unos minutos o usa "
-    "«Actualizar yt-dlp».":
+    "«Actualizar motores».":
         "The site refused the download (error 403) several times. Press Retry in a few minutes or use "
-        "“Update yt-dlp”.",
+        "“Update engines”.",
     "El sitio está limitando las descargas (demasiadas solicitudes). Espera unos minutos.":
         "The site is limiting downloads (too many requests). Wait a few minutes.",
     "La calidad o el formato elegido no está disponible para este video.":

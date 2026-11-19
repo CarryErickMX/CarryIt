@@ -55,6 +55,18 @@ def selftest(url: str, out: str) -> bool:
 
     results = {"yt_dlp": core.ytdlp_version(), "ffmpeg": core.find_ffmpeg(), "deno": core.find_deno()}
 
+    # Motor de imágenes: los extractores de gallery-dl se cargan por nombre, así que hay que comprobar
+    # que el empaquetado los haya incluido (sin internet).
+    try:
+        from carryit import images
+        results["gallery_dl"] = images.version()
+        sample = ("https://bsky.app/profile/bsky.app/post/3myx7vphq3s2j", "https://www.pinterest.com/pin/1234567/",
+                  "https://imgur.com/gallery/abc123", "https://www.instagram.com/p/ABC123/")
+        missing = [u for u in sample if not images.supported(u)]
+        results["images_engine"] = "ok" if not missing else f"faltan extractores: {missing}"
+    except Exception as exc:
+        results["images_engine"] = f"error: {exc!r}"
+
     # La interfaz se crea y se cierra sola (comprueba que temas, fuentes e íconos vengan incluidos).
     try:
         from carryit import gui
@@ -70,6 +82,8 @@ def selftest(url: str, out: str) -> bool:
     for name, opts in {
         "audio_mp3": core.DownloadOptions(url=url, output_dir=out, mode="audio"),
         "video_mp4": core.DownloadOptions(url=url, output_dir=out, mode="video", height=360),
+        "image_jpg": core.DownloadOptions(url="https://commons.wikimedia.org/wiki/File:Cat_November_2010-1a.jpg",
+                                          output_dir=out, mode="images"),
     }.items():
         done, last = threading.Event(), {}
 
@@ -78,11 +92,15 @@ def selftest(url: str, out: str) -> bool:
                 last.update(ev)
                 done.set()
 
-        core.DownloadTask(opts, on_event).start()
+        if opts.mode == "images":
+            from carryit import images
+            images.ImageTask(opts, on_event).start()
+        else:
+            core.DownloadTask(opts, on_event).start()
         done.wait(600)
         results[name] = last
-    ok = (results.get("gui") == "ok" and bool(results["ffmpeg"])
-          and all(results[k].get("type") == "done" for k in ("audio_mp3", "video_mp4")))
+    ok = (results.get("gui") == "ok" and bool(results["ffmpeg"]) and results.get("images_engine") == "ok"
+          and all(results[k].get("type") == "done" for k in ("audio_mp3", "video_mp4", "image_jpg")))
     results["ok"] = ok
     with open(os.path.join(out, "selftest.json"), "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2, ensure_ascii=False)

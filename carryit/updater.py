@@ -22,9 +22,13 @@ from . import APP_ID, GITHUB_REPO, __version__
 from .i18n import _
 from .settings import data_dir
 
-PACKAGES = ("yt_dlp", "yt_dlp_ejs")
+# Motores que se actualizan solos: paquete de Python -> nombre en PyPI.
+ENGINES = {"yt_dlp": "yt-dlp", "gallery_dl": "gallery-dl"}
+COMPANIONS = {"yt_dlp": ("yt_dlp_ejs",)}          # paquetes que acompañan a un motor
+PACKAGES = ("yt_dlp", "yt_dlp_ejs", "gallery_dl")
 CHECK_INTERVAL = 24 * 3600  # revisar como máximo una vez al día
 _UA = f"{APP_ID}/{__version__}"
+_active: set[str] = set()     # paquetes que se cargan desde la copia actualizada
 
 
 def lib_dir() -> str:
@@ -35,17 +39,18 @@ def _vt(version: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", version or "0"))
 
 
-def bundled_version() -> str:
-    """Versión de yt-dlp incluida en la app (sin la copia actualizada)."""
+def bundled_version(dist: str = "yt-dlp") -> str:
+    """Versión del motor incluida en la app (sin la copia actualizada)."""
     try:
-        return importlib.metadata.version("yt-dlp")
+        return importlib.metadata.version(dist)
     except importlib.metadata.PackageNotFoundError:
         return "0"
 
 
-def user_version() -> str | None:
+def user_version(pkg: str = "yt_dlp") -> str | None:
+    """Versión del motor descargado en la carpeta lib de los datos de CarryIt (None si no hay)."""
     try:
-        with open(os.path.join(lib_dir(), "yt_dlp", "version.py"), encoding="utf-8") as fh:
+        with open(os.path.join(lib_dir(), pkg, "version.py"), encoding="utf-8") as fh:
             m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)", fh.read())
         return m.group(1) if m else None
     except OSError:
@@ -57,7 +62,7 @@ def user_version() -> str | None:
 # --------------------------------------------------------------------------- #
 class _UserLibFinder:
     def find_spec(self, name, path=None, target=None):
-        if name.split(".")[0] not in PACKAGES:
+        if name.split(".")[0] not in _active:
             return None
         return importlib.machinery.PathFinder.find_spec(name, list(path) if path else [lib_dir()])
 
@@ -65,22 +70,28 @@ class _UserLibFinder:
 _finder = _UserLibFinder()
 
 
-def activate() -> str | None:
-    """Llamar antes de importar yt_dlp. Devuelve la versión activada o None."""
-    uv = user_version()
-    if not uv:
-        return None
-    if _vt(uv) <= _vt(bundled_version()):
-        # La app trae una versión igual o más nueva: la copia descargada sobra.
+def activate() -> dict[str, str]:
+    """Llamar antes de importar los motores. Usa la copia descargada de cada motor solo si es más
+    nueva que la incluida. Devuelve {motor: versión activada}."""
+    activated = {}
+    _active.clear()
+    for pkg, dist in ENGINES.items():
+        uv = user_version(pkg)
+        if uv and _vt(uv) > _vt(bundled_version(dist)):
+            _active.add(pkg)
+            _active.update(COMPANIONS.get(pkg, ()))
+            activated[dist] = uv
+    if not _active:
+        # La app trae versiones iguales o más nuevas: la copia descargada sobra.
         shutil.rmtree(lib_dir(), ignore_errors=True)
-        return None
-    if _finder not in sys.meta_path:
+    elif _finder not in sys.meta_path:
         sys.meta_path.insert(0, _finder)
-    return uv
+    return activated
 
 
 def deactivate(remove: bool = False) -> None:
-    """Vuelve a la versión incluida (por ejemplo si la descargada no carga)."""
+    """Vuelve a las versiones incluidas (por ejemplo si la descargada no carga)."""
+    _active.clear()
     if _finder in sys.meta_path:
         sys.meta_path.remove(_finder)
     for mod in [m for m in sys.modules if m.split(".")[0] in PACKAGES]:
@@ -105,10 +116,10 @@ def _wheel(data: dict) -> dict:
     raise RuntimeError(_("PyPI no tiene una versión compatible."))
 
 
-def latest_release() -> tuple[str, list[dict]]:
-    """(versión más reciente, [ruedas de yt-dlp y yt-dlp-ejs])."""
+def latest_release() -> dict[str, tuple[str, list[dict]]]:
+    """{motor: (versión más reciente, [ruedas a instalar])} de yt-dlp (con yt-dlp-ejs) y gallery-dl."""
+    out = {}
     data = json.loads(_get("https://pypi.org/pypi/yt-dlp/json"))
-    version = data["info"]["version"]
     wheels = [_wheel(data)]
     for req in data["info"].get("requires_dist") or []:
         m = re.match(r"yt-dlp-ejs\s*==\s*([\w.]+)", req)
@@ -116,7 +127,10 @@ def latest_release() -> tuple[str, list[dict]]:
             ejs = json.loads(_get(f"https://pypi.org/pypi/yt-dlp-ejs/{m.group(1)}/json"))
             wheels.append(_wheel(ejs))
             break
-    return version, wheels
+    out["yt-dlp"] = (data["info"]["version"], wheels)
+    data = json.loads(_get("https://pypi.org/pypi/gallery-dl/json"))
+    out["gallery-dl"] = (data["info"]["version"], [_wheel(data)])
+    return out
 
 
 def _install(wheels: list[dict]) -> None:
@@ -166,19 +180,42 @@ def check_app_release() -> dict | None:
     return None
 
 
-def check_and_update(current: str) -> dict:
-    """Busca una versión nueva y la instala. No cambia el yt-dlp ya cargado en memoria.
-
-    Devuelve {"status": "updated" | "current" | "error", "version": str, "message": str}.
-    """
+def current_versions() -> dict[str, str]:
+    """Versiones de los motores que la app está usando ahora (incluidas o actualizadas)."""
+    versions = {}
     try:
-        latest, wheels = latest_release()
-        if _vt(latest) <= _vt(current):
-            return {"status": "current", "version": current, "message": ""}
-        if user_version() == latest:  # ya descargada, falta reiniciar
-            return {"status": "updated", "version": latest, "message": ""}
-        _install(wheels)
-        return {"status": "updated", "version": latest, "message": ""}
+        import yt_dlp.version
+        versions["yt-dlp"] = yt_dlp.version.__version__
+    except Exception:
+        versions["yt-dlp"] = "0"
+    try:
+        import gallery_dl.version
+        versions["gallery-dl"] = gallery_dl.version.__version__
+    except Exception:
+        versions["gallery-dl"] = "0"
+    return versions
+
+
+def check_and_update() -> dict:
+    """Busca versiones nuevas de los motores y las instala. No cambia lo ya cargado en memoria
+    (se usan al reiniciar la app).
+
+    Devuelve {"status": "updated" | "current" | "error", "version": str, "message": str}; en "version"
+    va la lista de motores actualizados, p. ej. "yt-dlp 2026.11.20, gallery-dl 1.33.0".
+    """
+    current = current_versions()
+    try:
+        latest = latest_release()
+        newer = {dist: ver for dist, (ver, _w) in latest.items() if _vt(ver) > _vt(current.get(dist, "0"))}
+        if not newer:
+            return {"status": "current", "message": "",
+                    "version": ", ".join(f"{dist} {ver}" for dist, ver in current.items())}
+        label = ", ".join(f"{dist} {ver}" for dist, ver in newer.items())
+        pkgs = {v: k for k, v in ENGINES.items()}
+        if all(user_version(pkgs[dist]) == ver for dist, ver in newer.items()):
+            return {"status": "updated", "version": label, "message": ""}   # ya descargado; falta reiniciar
+        _install([w for _ver, wheels in latest.values() for w in wheels])
+        return {"status": "updated", "version": label, "message": ""}
     except Exception as exc:
         shutil.rmtree(lib_dir() + ".new", ignore_errors=True)
-        return {"status": "error", "version": current, "message": str(exc)}
+        return {"status": "error", "version": "", "message": str(exc)}

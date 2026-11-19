@@ -193,6 +193,12 @@ def _clean_error(msg: str) -> str:
         return _("El video no está disponible.")
     if "is not a valid url" in lowered or "unsupported url" in lowered:
         return _("El enlace no es válido.")
+    if ("no video formats found" in lowered or "there is no video in this post" in lowered
+            or "no video could be found" in lowered):
+        # Pasa con publicaciones de foto (Instagram, X, Facebook…) o cuando el sitio no da el video sin sesión.
+        return _("Este enlace no tiene video: puede ser una foto o un carrusel de imágenes (para bajarlas elige "
+                 "«Imágenes»). Si sí es un video, el sitio puede estar pidiendo iniciar sesión: en Ajustes "
+                 "elige el navegador donde tienes tu sesión abierta y vuelve a intentarlo.")
     if ("could not copy" in lowered and "cookie" in lowered) or "failed to decrypt" in lowered:
         return _("No se pudo leer la sesión del navegador. Ciérralo por completo y reintenta, "
                  "o elige otro navegador en Ajustes (Firefox es el más compatible).")
@@ -206,7 +212,7 @@ def _clean_error(msg: str) -> str:
         return _("No se encontró FFmpeg; es necesario para unir video/audio y convertir a MP3.")
     if "403" in lowered or "forbidden" in lowered:
         return _("El sitio rechazó la descarga (error 403) varias veces. "
-                 "Presiona Reintentar en unos minutos o usa «Actualizar yt-dlp».")
+                 "Presiona Reintentar en unos minutos o usa «Actualizar motores».")
     if "429" in lowered or "too many requests" in lowered:
         return _("El sitio está limitando las descargas (demasiadas solicitudes). Espera unos minutos.")
     if "requested format is not available" in lowered:
@@ -223,7 +229,12 @@ def _clean_error(msg: str) -> str:
         return _("No hay espacio suficiente en el disco.")
     if "permission denied" in lowered:
         return _("No hay permiso para guardar en la carpeta elegida.")
-    return _("Error de descarga:") + " " + re.sub(r"^\[[\w:]+\] [\w-]+: ", "", msg.splitlines()[0])[:250]
+    # Error sin traducción: se deja solo la explicación, sin las instrucciones técnicas de yt-dlp
+    # («please report this issue…», «Confirm you are on the latest version…», «Use --cookies…»).
+    text = re.sub(r"^\[[\w:]+\] [\w-]+: ", "", msg.splitlines()[0])
+    text = re.split(r"[;.]?\s*(?:please report this issue|confirm you are on the latest|use --cookies|"
+                    r"see\s+https?://|https?://github\.com/yt-dlp)", text, maxsplit=1, flags=re.I)[0]
+    return _("Error de descarga:") + " " + text.strip(" ;.!")[:250]
 
 
 # --------------------------------------------------------------------------- #
@@ -246,6 +257,8 @@ class MediaInfo:
     site: str = ""                 # sitio de origen según yt-dlp (Youtube, Facebook, TikTok…)
     track: str = ""                # nombre de la canción, si el sitio lo da
     artist: str = ""               # artista, si el sitio lo da
+    is_images: bool = False        # publicación de fotos (se descarga con gallery-dl)
+    thumb_only: bool = False       # modo Imágenes con un video: se baja su portada
 
 
 UNAVAILABLE_TITLES = {"[Private video]", "[Deleted video]", "[Video privado]", "[Video eliminado]"}
@@ -360,8 +373,11 @@ _YT_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/live/|/embed/)([\w-]{11})")
 _YT_LIST = re.compile(r"[?&]list=([\w-]+)")
 
 
-def media_key(url: str, playlist: bool = False) -> str:
-    """Identificador estable de lo que se descarga (para el historial y avisar de repetidos)."""
+def media_key(url: str, playlist: bool = False, mode: str = "video") -> str:
+    """Identificador estable de lo que se descarga (para el historial y avisar de repetidos).
+    Las imágenes llevan su propia clave: bajar la portada de un video ya descargado no es repetirlo."""
+    if mode == "images":
+        return "img:" + media_key(url)
     if playlist:
         m = _YT_LIST.search(url)
         if m:
@@ -374,7 +390,8 @@ def media_key(url: str, playlist: bool = False) -> str:
 
 SUPPORTED_SITES = ("youtube.com", "youtu.be", "facebook.com", "fb.watch", "tiktok.com", "instagram.com",
                    "x.com", "twitter.com", "vimeo.com", "soundcloud.com", "twitch.tv", "dailymotion.com",
-                   "dai.ly", "reddit.com")
+                   "dai.ly", "reddit.com", "pinterest.com", "pin.it", "bsky.app", "imgur.com", "tumblr.com",
+                   "flickr.com", "deviantart.com")
 
 
 def is_media_url(text: str) -> bool:
@@ -417,6 +434,7 @@ class DownloadOptions:
     section: tuple[float, float] | None = None   # recortar: (inicio, fin) en segundos
     rate_limit: str = ""               # p. ej. "2M" (2 MB/s); "" = sin límite
     tags: dict | None = None           # audio: {"title": ..., "artist": ...} elegidos por el usuario
+    image_format: str = "JPG"          # modo Imágenes: "JPG" (convierte WEBP/AVIF) u "Original"
 
 
 def parse_time(text: str) -> float | None:

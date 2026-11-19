@@ -5,8 +5,8 @@
   </picture>
 </p>
 
-Aplicación de escritorio gratuita para Windows: descarga videos de YouTube, o solo el audio, al estilo de aTube Catcher o 4K Video Downloader.
-Usa [yt-dlp](https://github.com/yt-dlp/yt-dlp) como motor, FFmpeg para unir y convertir, y CustomTkinter para la interfaz.
+Aplicación de escritorio gratuita para Windows: descarga videos de YouTube, solo el audio o las imágenes de una publicación, al estilo de aTube Catcher o 4K Video Downloader.
+Usa [yt-dlp](https://github.com/yt-dlp/yt-dlp) y [gallery-dl](https://github.com/mikf/gallery-dl) como motores, FFmpeg para unir y convertir, y CustomTkinter para la interfaz.
 
 ## Descargar e instalar
 
@@ -28,6 +28,7 @@ Get-FileHash .\CarryIt-Setup-1.1.0.exe
 
 - **Video** en MP4 (H.264, se reproduce en cualquier dispositivo), MKV o WEBM, de 144p hasta 4K.
 - **Solo audio** en MP3, M4A u OPUS (de 128 a 320 kbps), o FLAC/WAV sin pérdida, con portada y datos incrustados.
+- **Imágenes** de publicaciones y galerías (Instagram, Pinterest, Bluesky, X, Reddit, Imgur, Tumblr, Flickr, DeviantArt y cientos más): si pegas un enlace sin video, la app cambia sola a «Imágenes». Los carruseles se guardan en su propia carpeta y las imágenes WEBP/AVIF se convierten a JPG (o se dejan como vienen, si eliges «Original del sitio»). Con un enlace de YouTube, baja la portada del video en la mejor calidad.
 - **Buscar escribiendo**: si escribes un nombre en lugar de un enlace, muestra resultados de YouTube con miniatura para elegir.
 - **Detecta enlaces copiados**: copias un enlace de YouTube en el navegador y, al volver a CarryIt, ya está pegado y analizado.
 - **Análisis del enlace**: miniatura, título, canal, duración y las calidades que realmente tiene el video.
@@ -45,7 +46,7 @@ Get-FileHash .\CarryIt-Setup-1.1.0.exe
 - **Listas de reproducción**: el botón **Elegir videos** permite marcar cuáles bajar, con buscador y botones Todos/Ninguno. Se guardan en una carpeta con el nombre de la lista.
 - **Cola de descargas** con progreso, velocidad, tiempo restante, cancelar, reintentar y «Mostrar» el archivo. Hasta 3 descargas al mismo tiempo.
 - **Reintento automático** cuando YouTube rechaza una descarga (error 403).
-- **Se mantiene al día sola**: yt-dlp se actualiza automáticamente (YouTube cambia seguido) y la app avisa cuando hay una versión nueva de sí misma en GitHub.
+- **Se mantiene al día sola**: los motores (yt-dlp y gallery-dl) se actualizan automáticamente (YouTube cambia seguido) y la app avisa cuando hay una versión nueva de sí misma en GitHub.
 - Tema claro u oscuro, y recuerda tus preferencias.
 
 ## Aviso legal
@@ -74,11 +75,12 @@ Diagnóstico sin interfaz (descarga de prueba y apertura de la ventana; escribe 
 
 | Archivo | Qué hace |
 |---|---|
-| `main.py` | Punto de entrada: registro de errores, carga del yt-dlp actualizado y `--selftest`. |
+| `main.py` | Punto de entrada: registro de errores, carga de los motores actualizados y `--selftest`. |
 | `carryit/__init__.py` | Nombre, versión (`__version__`) y repositorio de GitHub (`GITHUB_REPO`). |
 | `carryit/core.py` | Lógica de yt-dlp: análisis, opciones, progreso, reintentos, cancelación y búsqueda de FFmpeg y Deno. |
+| `carryit/images.py` | Descarga de imágenes con gallery-dl: análisis, carpetas por publicación, conversión a JPG y portadas de YouTube. |
 | `carryit/gui.py` | Interfaz con CustomTkinter. |
-| `carryit/updater.py` | Actualización de yt-dlp desde PyPI y aviso de versiones nuevas de la app. |
+| `carryit/updater.py` | Actualización de yt-dlp y gallery-dl desde PyPI y aviso de versiones nuevas de la app. |
 | `carryit/settings.py` | Preferencias en `%APPDATA%\CarryIt\settings.json`. |
 | `build.py` | Genera el .exe, el instalador, el ZIP portátil y `SHA256SUMS.txt`. |
 | `installer/` | Script de Inno Setup y avisos que muestra el instalador. |

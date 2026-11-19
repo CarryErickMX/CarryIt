@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from carryit.i18n import EN  # noqa: E402
 
-FILES = ["gui.py", "dialogs.py", "core.py", "report.py", "updater.py"]
+FILES = ["gui.py", "dialogs.py", "core.py", "report.py", "updater.py", "images.py"]
 SPANISH = re.compile(r"[áéíóúñ¿¡]|\b(el|la|los|las|de|del|para|con|una?|que|no|se|en)\b", re.I)
 IGNORE_CALLS = {"warning", "error", "exception", "info", "debug"}  # mensajes del registro (para soporte)
 

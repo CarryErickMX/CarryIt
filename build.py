@@ -98,6 +98,8 @@ def run_pyinstaller(icon: str) -> None:
         "--collect-all", "customtkinter",   # temas y fuentes de la interfaz
         "--collect-all", "yt_dlp_ejs",      # scripts JS para resolver los retos de YouTube
         "--copy-metadata", "yt-dlp",        # el actualizador compara contra esta versión
+        "--collect-submodules", "gallery_dl",  # extractores de imágenes (se cargan por nombre)
+        "--copy-metadata", "gallery-dl",    # el actualizador compara contra esta versión
         "--exclude-module", "deno",         # el binario de Deno se copia aparte
     ])
 
