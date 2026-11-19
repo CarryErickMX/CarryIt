@@ -250,7 +250,19 @@ def probe(url: str) -> core.MediaInfo:
         is_images=True,
         count=len(items),
         site=category.title(),
+        image_exts=_extensions(items),
     )
+
+
+def _extensions(items: list[tuple[str, dict]]) -> list[str]:
+    """Formatos originales de la publicación, p. ej. ["JPG", "WEBP"] ("JPEG" cuenta como JPG)."""
+    found: list[str] = []
+    for u, kw in items:
+        ext = str(kw.get("extension") or os.path.splitext(urllib.parse.urlparse(u).path)[1]).lstrip(".").upper()
+        ext = "JPG" if ext == "JPEG" else ext
+        if ext and ext not in found:
+            found.append(ext)
+    return found
 
 
 def probe_thumbnail(url: str) -> core.MediaInfo:

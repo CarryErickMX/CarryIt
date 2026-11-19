@@ -331,6 +331,12 @@ class MediaInfo:
     artist: str = ""               # artista, si el sitio lo da
     is_images: bool = False        # publicación de fotos (se descarga con gallery-dl)
     thumb_only: bool = False       # modo Imágenes con un video: se baja su portada
+    # Lo que de verdad ofrece este video, por formato (vacío = no se sabe; se muestran las opciones generales).
+    # Video: formato -> [(altura, bytes aprox. o None)], de mayor a menor.
+    video_options: dict[str, list[tuple[int, int | None]]] = field(default_factory=dict)
+    # Audio: formato -> [(código, kbps o None, bytes aprox. o None)]; código = "orig", "lossless" o "192"…
+    audio_options: dict[str, list[tuple[str, int | None, int | None]]] = field(default_factory=dict)
+    image_exts: list[str] = field(default_factory=list)   # Imágenes: extensiones originales (JPG, WEBP…)
 
 
 UNAVAILABLE_TITLES = {"[Private video]", "[Deleted video]", "[Video privado]", "[Video eliminado]"}
@@ -372,11 +378,10 @@ def fetch_info(url: str, playlist: bool) -> MediaInfo:
             entries=items,
         )
 
-    formats = info.get("formats") or []
-    heights = sorted(
-        {f["height"] for f in formats if f.get("height") and f.get("vcodec") not in (None, "none")},
-        reverse=True,
-    )
+    formats = [f for f in info.get("formats") or [] if not f.get("has_drm") and f.get("ext") != "mhtml"]
+    duration = info.get("duration")
+    video_options = _video_options(formats, duration)
+    heights = [h for h, _s in video_options.get("MKV", [])]
     # Solo audio: todos los formatos dicen explícitamente que no traen video (SoundCloud, podcasts…).
     audio_only = bool(formats) and all(f.get("vcodec") == "none" for f in formats)
     artists = info.get("artists") or ([info["artist"]] if info.get("artist") else [])
@@ -389,10 +394,111 @@ def fetch_info(url: str, playlist: bool) -> MediaInfo:
         heights=heights or list(DEFAULT_HEIGHTS),
         heights_known=bool(heights),
         audio_only=audio_only,
+        video_options=video_options,
+        audio_options=_audio_options(formats, duration),
         site=info.get("extractor_key") or "",
         track=info.get("track") or "",
         artist=", ".join(artists),
     )
+
+
+_VIDEO_CODECS = {"MP4": ("avc", "h264"), "WEBM": ("vp8", "vp9", "vp09", "av01")}
+_MERGE_AUDIO = {"MP4": ("mp4a", "aac"), "WEBM": ("opus", "vorbis")}
+_AUDIO_CODECS = {"MP3": ("mp3",), "M4A": ("mp4a", "aac"), "OPUS": ("opus",)}
+_LOSSLESS_CODECS = ("flac", "alac", "pcm", "wav")
+
+
+def _codec(f: dict, key: str) -> str | None:
+    value = f.get(key)
+    return None if value is None else str(value).lower()
+
+
+def _res(f: dict) -> int:
+    """La «p» de la calidad, como la entiende yt-dlp: el lado menor (un Short de 1080x1920 es 1080p)."""
+    return min((v for v in (f.get("height"), f.get("width")) if v), default=0)
+
+
+def _size(f: dict, duration, kbps=None) -> int | None:
+    size = f.get("filesize") or f.get("filesize_approx")
+    rate = kbps or f.get("tbr")
+    if not size and rate and duration:
+        size = rate * 125 * duration          # kbit/s -> bytes
+    return int(size) if size else None
+
+
+def _codec_rank(f: dict, fmt: str) -> int:
+    """Qué códec elegiría yt-dlp a igual calidad (para estimar bien el tamaño)."""
+    order = ("vp9", "vp09", "av01", "vp8") if fmt == "WEBM" else ("av01", "vp09", "vp9", "hev", "hvc", "h265", "avc")
+    vcodec = _codec(f, "vcodec") or ""
+    return next((len(order) - i for i, c in enumerate(order) if vcodec.startswith(c)), 0)
+
+
+def _video_options(formats: list[dict], duration) -> dict[str, list[tuple[int, int | None]]]:
+    """Calidades que existen en cada formato. MP4 = solo H.264 (lo que abre cualquier tele o celular)."""
+    videos = [f for f in formats if _res(f) and _codec(f, "vcodec") != "none"]
+    audios = [f for f in formats if _codec(f, "vcodec") == "none" and _codec(f, "acodec") not in (None, "none")]
+
+    def fits(f: dict, fmt: str) -> bool:
+        if fmt == "MKV":
+            return True
+        vcodec = _codec(f, "vcodec")
+        if vcodec is None:                    # el sitio no dice el códec: se juzga por la extensión
+            return f.get("ext") == fmt.lower()
+        return vcodec.startswith(_VIDEO_CODECS[fmt])
+
+    out: dict[str, list[tuple[int, int | None]]] = {}
+    for fmt in VIDEO_FORMATS:
+        pool = [f for f in videos if fits(f, fmt)]
+        if not pool:
+            continue
+        prefixes = _MERGE_AUDIO.get(fmt)
+        audio_pool = [a for a in audios if prefixes and (_codec(a, "acodec") or "").startswith(prefixes)] or audios
+        audio = max(audio_pool, key=lambda a: a.get("abr") or a.get("tbr") or 0, default=None)
+        rows = []
+        for h in sorted({_res(f) for f in pool}, reverse=True):
+            best = max((f for f in pool if _res(f) == h),
+                       key=lambda f: (f.get("fps") or 0, _codec_rank(f, fmt), f.get("tbr") or 0))
+            size = _size(best, duration)
+            if size and _codec(best, "acodec") == "none":       # video sin sonido: se le suma el audio
+                extra = _size(audio, duration) if audio else None
+                size = size + extra if extra else None
+            rows.append((h, size))
+        out[fmt] = rows
+    return out
+
+
+def _audio_options(formats: list[dict], duration) -> dict[str, list[tuple[str, int | None, int | None]]]:
+    """Calidades de audio que tienen sentido: nunca más de lo que trae el original (subirla solo engorda)."""
+    with_audio = [f for f in formats if _codec(f, "acodec") not in (None, "none")]
+    if not with_audio:
+        return {}
+    pool = [f for f in with_audio if _codec(f, "vcodec") == "none"] or with_audio
+
+    def kbps(f: dict) -> float | None:
+        return f.get("abr") or (f.get("tbr") if _codec(f, "vcodec") == "none" else None)
+
+    def size(f: dict) -> int | None:
+        return _size(f, duration) if _codec(f, "vcodec") == "none" else _size({}, duration, kbps(f))
+
+    best = max((kbps(f) or 0 for f in pool), default=0)
+    out: dict[str, list[tuple[str, int | None, int | None]]] = {}
+    for fmt in AUDIO_FORMATS:
+        if fmt in LOSSLESS_AUDIO:
+            # FLAC/WAV solo si el sitio da audio sin pérdida; si no, serían archivos enormes sin mejor sonido.
+            if any((_codec(f, "acodec") or "").startswith(_LOSSLESS_CODECS) for f in with_audio):
+                out[fmt] = [("lossless", None, None)]
+            continue
+        same = [f for f in pool if (_codec(f, "acodec") or "").startswith(_AUDIO_CODECS[fmt])]
+        if same:
+            # Ya viene en ese formato: se guarda tal cual, sin volver a comprimir.
+            orig = max(same, key=lambda f: kbps(f) or 0)
+            out[fmt] = [("orig", round(kbps(orig)) if kbps(orig) else None, size(orig))]
+        elif best:
+            top = next((int(b) for b in reversed(AUDIO_BITRATES) if int(b) >= best), int(AUDIO_BITRATES[0]))
+            out[fmt] = [(b, int(b), _size({}, duration, int(b))) for b in AUDIO_BITRATES if int(b) <= top]
+        else:
+            out[fmt] = [(b, int(b), _size({}, duration, int(b))) for b in AUDIO_BITRATES]
+    return out
 
 
 def _best_thumb(thumbs) -> str | None:
@@ -495,9 +601,8 @@ class DownloadOptions:
     mode: str = "video"            # "video" | "audio"
     video_format: str = "MP4"      # MP4 | MKV | WEBM
     height: int | None = None      # None = mejor calidad
-    compat: bool = False           # MP4 compatible con todo (H.264 + AAC, hasta 1080p)
     audio_format: str = "MP3"      # MP3 | M4A | OPUS | FLAC | WAV
-    audio_bitrate: str = "320"     # kbps (se ignora en FLAC/WAV)
+    audio_bitrate: str = "320"     # kbps, u "orig" = el audio tal como viene (se ignora en FLAC/WAV)
     playlist: bool = False
     playlist_items: str | None = None  # p. ej. "1-3,7,9"; None = todos
     filename_style: str = "title"      # ver FILENAME_STYLES
@@ -547,6 +652,42 @@ def compress_indices(indices) -> str:
     return ",".join(out)
 
 
+_WORK_MARK = ".carryit-dl"   # marca de los archivos mientras se descargan y procesan
+_SUBS_FILE = re.compile(r"^[\w-]+\.(srt|vtt|ass|ssa|lrc)$", re.IGNORECASE)
+
+
+def finish_name(path: str) -> str:
+    """«Canción.carryit-dl.mp3» -> «Canción.mp3» (o «Canción (2).mp3» si ya existe). También renombra los
+    subtítulos sueltos de ese archivo. Devuelve la ruta final."""
+    folder, base = os.path.split(path)
+    if _WORK_MARK not in base:
+        return path
+    stem = base[:base.index(_WORK_MARK)]
+    ext = base[base.index(_WORK_MARK) + len(_WORK_MARK):]
+    target, n = os.path.join(folder, stem + ext), 2
+    while os.path.exists(target):
+        target = os.path.join(folder, f"{stem} ({n}){ext}")
+        n += 1
+    try:
+        os.replace(path, target)
+    except OSError:
+        log.warning("No se pudo quitar la marca de %s", path, exc_info=True)
+        return path
+    new_stem = os.path.splitext(os.path.basename(target))[0]
+    prefix = stem + _WORK_MARK + "."
+    try:
+        for other in os.listdir(folder or "."):
+            # Solo subtítulos («Canción.carryit-dl.es.srt» -> «Canción.es.srt»); nunca piezas de otra
+            # descarga del mismo título que siga en curso.
+            if other.startswith(prefix) and _SUBS_FILE.match(other[len(prefix):]):
+                dest = os.path.join(folder, new_stem + "." + other[len(prefix):])
+                if not os.path.exists(dest):
+                    os.replace(os.path.join(folder, other), dest)
+    except OSError:
+        log.warning("No se pudieron renombrar los archivos extra de %s", path, exc_info=True)
+    return target
+
+
 def build_args(o: DownloadOptions) -> list[str]:
     name = FILENAME_STYLES.get(o.filename_style, FILENAME_STYLES["title"])
     args = [
@@ -556,7 +697,9 @@ def build_args(o: DownloadOptions) -> list[str]:
         "--yes-playlist" if o.playlist else "--no-playlist",
         # Video suelto: "Título.ext". Lista: "Nombre de la lista/001 - Título.ext"
         # (el "." evita que un video suelto termine en la raíz de la unidad)
-        "--output", f"%(playlist_title,playlist_id|.)s/%(playlist_index&{{:03d}} - |)s{name}.%(ext)s",
+        # La marca _WORK_MARK evita que yt-dlp tome por suyo un archivo de la persona con el mismo nombre
+        # (p. ej. «Canción.m4a» al bajar el MP3), lo convierta y lo borre. Se quita al terminar.
+        "--output", f"%(playlist_title,playlist_id|.)s/%(playlist_index&{{:03d}} - |)s{name}{_WORK_MARK}.%(ext)s",
         "--retries", "10",
         "--fragment-retries", "10",
     ]
@@ -565,23 +708,25 @@ def build_args(o: DownloadOptions) -> list[str]:
 
     if o.mode == "audio":
         fmt = o.audio_format.upper()
-        args += ["--format", "ba/b", "--extract-audio", "--audio-format", fmt.lower()]
-        if fmt not in LOSSLESS_AUDIO:
-            args += ["--audio-quality", f"{o.audio_bitrate}K"]
+        if o.audio_bitrate == "orig" and fmt in _AUDIO_CODECS:
+            # Si el sitio ya lo da en ese formato se guarda sin volver a comprimir (yt-dlp solo lo copia).
+            same = "/".join(f"ba[acodec^={c}]" for c in _AUDIO_CODECS[fmt])
+            args += ["--format", f"{same}/ba/b", "--extract-audio", "--audio-format", fmt.lower()]
+        else:
+            args += ["--format", "ba/b", "--extract-audio", "--audio-format", fmt.lower()]
+            if fmt not in LOSSLESS_AUDIO and o.audio_bitrate.isdigit():
+                args += ["--audio-quality", f"{o.audio_bitrate}K"]
         if fmt != "WAV":
             args += ["--embed-thumbnail"]
     else:
         fmt = o.video_format.upper()
         res = f"res:{o.height}" if o.height else "res"
         selector = "bv*+ba/b"
-        if fmt == "MP4" and o.compat:
-            # Compatible con todo: video H.264 + audio AAC (lo abre cualquier tele, celular o reproductor).
-            # YouTube solo lo da hasta 1080p; si un sitio no lo tiene, se usa lo mejor disponible.
+        if fmt == "MP4":
+            # MP4 siempre compatible con todo: video H.264 + audio AAC (lo abre cualquier tele, celular o
+            # reproductor). YouTube solo lo da hasta 1080p; si un sitio no lo tiene, se usa lo mejor disponible.
             selector = ("bv*[vcodec^=avc]+ba[acodec^=mp4a]/bv*[vcodec^=avc]+ba/"
                         "b[vcodec^=avc]/bv*+ba/b")
-            sort = "res:1080,fps,vcodec:h264,acodec:aac"
-        elif fmt == "MP4":
-            # h264 + aac si existe a esa resolución; en 1440p/4K YouTube solo tiene AV1 o VP9.
             sort = f"{res},fps,vcodec:h264,acodec:aac"
         elif fmt == "WEBM":
             sort = f"{res},fps,vcodec:vp9,acodec:opus"
@@ -753,6 +898,7 @@ class DownloadTask:
             self.on_event({"type": "stage", "text": names.get(pp, _("Procesando…"))})
 
     def _post_hook(self, filepath: str) -> None:
+        filepath = finish_name(filepath)
         self.files.append(filepath)
         self.on_event({"type": "file", "path": filepath})
 

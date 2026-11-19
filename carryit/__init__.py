@@ -4,7 +4,7 @@ import os
 APP_NAME = "CarryIt"
 APP_ID = "CarryIt"                 # carpeta de datos: %APPDATA%\CarryIt
 AUTHOR = "CARRY (キャリー)"
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Repositorio de GitHub donde se publican las versiones, como "usuario/CarryIt".
 # Mientras esté vacío, la app no busca versiones nuevas de sí misma.

@@ -26,12 +26,12 @@ Get-FileHash .\CarryIt-Setup-1.1.0.exe
 
 ## Funciones
 
-- **Video** en MP4 (H.264, se reproduce en cualquier dispositivo), MKV o WEBM, de 144p hasta 4K.
-- **Solo audio** en MP3, M4A u OPUS (de 128 a 320 kbps), o FLAC/WAV sin pérdida, con portada y datos incrustados.
+- **Video** en MP4 (H.264, se reproduce en cualquier dispositivo; en YouTube llega a 1080p), MKV o WEBM (hasta 4K).
+- **Solo audio** en MP3, M4A u OPUS, con portada y datos incrustados. Si el sitio ya da el audio en M4A u OPUS se guarda tal cual, sin volver a comprimirlo. FLAC/WAV aparecen solo si el sitio ofrece audio sin pérdida.
 - **Imágenes** de publicaciones y galerías (Instagram, Pinterest, Bluesky, X, Reddit, Imgur, Tumblr, Flickr, DeviantArt y cientos más): si pegas un enlace sin video, la app cambia sola a «Imágenes». Los carruseles se guardan en su propia carpeta y las imágenes WEBP/AVIF se convierten a JPG (o se dejan como vienen, si eliges «Original del sitio»). Con un enlace de YouTube, baja la portada del video en la mejor calidad.
 - **Buscar escribiendo**: si escribes un nombre en lugar de un enlace, muestra resultados de YouTube con miniatura para elegir.
 - **Detecta enlaces copiados**: copias un enlace de YouTube en el navegador y, al volver a CarryIt, ya está pegado y analizado.
-- **Análisis del enlace**: miniatura, título, canal, duración y las calidades que realmente tiene el video.
+- **Análisis del enlace**: miniatura, título, canal y duración. Cada formato muestra solo las calidades que de verdad tiene ese video, con el tamaño aproximado del archivo (no ofrece, por ejemplo, un MP3 de 320 kbps si el original es de 130 kbps).
 - **Historial** que se conserva al cerrar, con buscador, y aviso si intentas bajar algo que ya tienes.
 - **Aviso al terminar**: si la ventana está en segundo plano, su botón parpadea en la barra de tareas y suena un aviso.
 - **Ajustes**: tema, descargas al mismo tiempo, nombre de los archivos (título, título - canal o canal - título) y carpetas separadas para videos y audios.

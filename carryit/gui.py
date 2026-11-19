@@ -31,7 +31,7 @@ THUMB_SIZE = (208, 117)
 
 # Textos en pantalla (traducidos). Lo que se guarda en las preferencias son códigos, no estos textos.
 BEST = _("Mejor calidad")
-COMPAT = _("Compatible con todo (hasta 1080p)")   # solo MP4: H.264 + AAC
+MP4_MAX_GUESS = 1080      # sin analizar: MP4 (H.264, compatible con todo) casi nunca pasa de 1080p
 HEIGHT_LABELS = {2160: "2160p (4K)", 1440: "1440p (2K)", 1080: "1080p (Full HD)", 720: "720p (HD)"}
 LOSSLESS_LABEL = _("Sin pérdida")
 SUBS_LABELS = {"none": _("Sin subtítulos"), "es": _("Español"), "en": _("Inglés"), "es_en": _("Español e inglés")}
@@ -48,9 +48,15 @@ def height_label(h: int) -> str:
     return HEIGHT_LABELS.get(h, f"{h}p")
 
 
+def with_size(label: str, size: int | None) -> str:
+    """«1080p (Full HD)» -> «1080p (Full HD) · ~45.3 MB» si se sabe cuánto pesará."""
+    return f"{label} · ~{fmt_bytes(size)}" if size else label
+
+
 def label_height(label: str) -> int | None:
-    """Texto o código de calidad -> altura (None = la mejor / compatible)."""
-    if label in (BEST, COMPAT, "best", "compat", "Mejor calidad"):
+    """Texto o código de calidad -> altura (None = la mejor)."""
+    label = label.split(" · ")[0]
+    if label.startswith(BEST) or label in ("best", "compat", "Mejor calidad"):
         return None
     try:
         return int(label.split("p")[0])
@@ -59,19 +65,9 @@ def label_height(label: str) -> int | None:
 
 
 def quality_code(label: str) -> str:
-    """Texto del menú de calidad -> código que se guarda ("compat", "best" o "1080")."""
-    if label == COMPAT:
-        return "compat"
+    """Texto del menú de calidad -> código que se guarda ("best" o "1080")."""
     h = label_height(label)
     return "best" if h is None else str(h)
-
-
-def quality_label(code: str, video_format: str = "MP4") -> str:
-    """Código guardado -> texto del menú (acepta también los textos antiguos)."""
-    if code == "compat":
-        return COMPAT if video_format == "MP4" else BEST
-    h = label_height(code)
-    return BEST if h is None else height_label(h)
 
 
 def fmt_bytes(n: float | None) -> str:
@@ -705,7 +701,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(card, text=_("Calidad")).grid(row=0, column=4, sticky="e", padx=(16, 4), pady=top)
         self.quality_menu = ctk.CTkOptionMenu(card, values=[BEST], width=250,
-                                              command=lambda _v: self._save_choices())
+                                              command=lambda _v: self._on_quality_change())
         self.quality_menu.grid(row=0, column=5, sticky="w", padx=4, pady=top)
 
         extras = ctk.CTkFrame(card, fg_color="transparent")
@@ -889,16 +885,51 @@ class App(ctk.CTk):
     def mode(self) -> str:
         return self.mode_btn.get()
 
+    # Tras analizar un video, cada formato muestra solo lo que ese video tiene de verdad (con su tamaño).
+    # Sin analizar (o en listas) se muestran las opciones generales.
+    def _video_formats(self) -> list[str]:
+        opts = self._analyzed.video_options if self._analyzed else {}
+        return [f for f in core.VIDEO_FORMATS if f in opts] or list(core.VIDEO_FORMATS)
+
     def _video_quality_values(self) -> list[str]:
+        fmt = self.format_menu.get()
+        rows = (self._analyzed.video_options if self._analyzed else {}).get(fmt)
+        if rows:
+            # «Mejor calidad (1080p) · ~55.6 MB»: dice qué es lo mejor que da este formato.
+            best = with_size(f"{BEST} ({rows[0][0]}p)", rows[0][1])
+            return [best] + [with_size(height_label(h), size) for h, size in rows]
         heights = self._analyzed.heights if self._analyzed else core.DEFAULT_HEIGHTS
-        first = [COMPAT, BEST] if self.format_menu.get() == "MP4" else [BEST]
-        return first + [height_label(h) for h in heights]
+        if fmt == "MP4":
+            heights = [h for h in heights if h <= MP4_MAX_GUESS] or heights
+        return [BEST] + [height_label(h) for h in heights]
 
     def _refresh_video_quality(self) -> None:
         values = self._video_quality_values()
         self.quality_menu.configure(values=values, state="normal")
-        wanted = quality_label(self.settings.video_quality, self.format_menu.get())
-        self.quality_menu.set(wanted if wanted in values else values[0])
+        # La calidad que eligió la persona; si este formato no la tiene, la más cercana por debajo.
+        wanted = label_height(self.settings.video_quality)
+        pick = values[0]
+        if wanted:
+            options = [v for v in values[1:] if label_height(v)]
+            below = [v for v in options if label_height(v) <= wanted]
+            pick = below[0] if below else (options[-1] if options else values[0])
+        self.quality_menu.set(pick)
+
+    def _image_kinds(self) -> tuple[list[str], list[str]]:
+        """(formatos originales, los que se convertirían a JPG) de la publicación analizada."""
+        from . import images
+        info = self._analyzed
+        exts = info.image_exts if info and info.is_images else []
+        return exts, [e for e in exts if "." + e.lower() in images._CONVERT]
+
+    def _refresh_image_quality(self) -> None:
+        exts, convertible = self._image_kinds()
+        if self.format_menu.get() == "JPG" and convertible:
+            text = ", ".join(convertible) + " → JPG"
+        else:
+            text = IMAGE_QUALITY + (f" ({', '.join(exts)})" if exts else "")
+        self.quality_menu.configure(values=[text], state="disabled")
+        self.quality_menu.set(text)
 
     def _refresh_mode(self) -> None:
         if hasattr(self, "tags_btn"):
@@ -916,30 +947,66 @@ class App(ctk.CTk):
         if self.mode == "images":
             from . import images
             self.subs_frame.grid_remove()
-            self.format_menu.configure(values=images.IMAGE_FORMATS)
-            self.format_menu.set(self.settings.image_format if self.settings.image_format in images.IMAGE_FORMATS
-                                 else images.IMAGE_FORMATS[0])
-            self.quality_menu.configure(values=[IMAGE_QUALITY], state="disabled")
-            self.quality_menu.set(IMAGE_QUALITY)
+            # Si nada se convertiría (todo es JPG o PNG), «JPG» y «Original» darían lo mismo: queda una opción.
+            exts, convertible = self._image_kinds()
+            values = ["JPG"] if exts and not convertible and set(exts) <= {"JPG"} else (
+                ["Original"] if exts and not convertible else list(images.IMAGE_FORMATS))
+            self.format_menu.configure(values=values)
+            self.format_menu.set(self.settings.image_format if self.settings.image_format in values else values[0])
+            self._refresh_image_quality()
         elif self.mode == "audio":
             self.subs_frame.grid_remove()
-            self.format_menu.configure(values=core.AUDIO_FORMATS)
-            self.format_menu.set(self.settings.audio_format)
+            values = self._audio_formats()
+            self.format_menu.configure(values=values)
+            self.format_menu.set(self.settings.audio_format if self.settings.audio_format in values else values[0])
             self._refresh_audio_quality()
         else:
             self.subs_frame.grid()
-            self.format_menu.configure(values=core.VIDEO_FORMATS)
-            self.format_menu.set(self.settings.video_format)
+            values = self._video_formats()
+            self.format_menu.configure(values=values)
+            self.format_menu.set(self.settings.video_format if self.settings.video_format in values else values[0])
             self._refresh_video_quality()
 
+    def _audio_formats(self) -> list[str]:
+        opts = self._analyzed.audio_options if self._analyzed else {}
+        return [f for f in core.AUDIO_FORMATS if f in opts] or list(core.AUDIO_FORMATS)
+
+    def _audio_rows(self) -> list[tuple[str, str]]:
+        """[(texto del menú, código)] de la calidad de audio para el formato elegido."""
+        fmt = self.format_menu.get()
+        if fmt in core.LOSSLESS_AUDIO:
+            return [(LOSSLESS_LABEL, "lossless")]
+        rows = (self._analyzed.audio_options if self._analyzed else {}).get(fmt)
+        if not rows:
+            return [(f"{b} kbps", b) for b in core.AUDIO_BITRATES]
+        out = []
+        for code, kbps, size in rows:
+            if code == "orig":
+                label = _("Original ({kbps} kbps)").format(kbps=kbps) if kbps else _("Original del sitio")
+            else:
+                label = f"{code} kbps"
+            out.append((with_size(label, size), code))
+        return out
+
     def _refresh_audio_quality(self) -> None:
-        if self.format_menu.get() in core.LOSSLESS_AUDIO:
-            self.quality_menu.configure(values=[LOSSLESS_LABEL], state="disabled")
-            self.quality_menu.set(LOSSLESS_LABEL)
-        else:
-            values = [f"{b} kbps" for b in core.AUDIO_BITRATES]
-            self.quality_menu.configure(values=values, state="normal")
-            self.quality_menu.set(self.settings.audio_quality if self.settings.audio_quality in values else values[0])
+        rows = self._audio_rows()
+        self._audio_codes = dict(rows)
+        values = [label for label, _code in rows]
+        # Si solo hay una opción (sin pérdida, o el audio tal como viene) el menú queda informativo.
+        self.quality_menu.configure(values=values, state="disabled" if len(values) == 1 else "normal")
+        wanted = self.settings.audio_quality
+        codes = [code for _label, code in rows]
+        pick = rows[0][0]
+        if wanted in codes:
+            pick = rows[codes.index(wanted)][0]
+        elif wanted.isdigit():
+            below = [label for label, code in rows if code.isdigit() and int(code) <= int(wanted)]
+            pick = below[0] if below else pick
+        self.quality_menu.set(pick)
+
+    def _audio_code(self) -> str:
+        label = self.quality_menu.get()
+        return getattr(self, "_audio_codes", {}).get(label) or label.split()[0]
 
     def _on_mode_change(self) -> None:
         self.settings.mode = self.mode
@@ -947,30 +1014,37 @@ class App(ctk.CTk):
         self.settings.save()
 
     def _on_format_change(self) -> None:
+        # Cada formato tiene sus propias calidades: se actualiza la lista y se conserva la calidad que la
+        # persona eligió (o la más cercana que tenga este formato).
         if self.mode == "images":
-            pass
+            self._refresh_image_quality()
         elif self.mode == "audio":
             self._refresh_audio_quality()
         else:
-            # «Compatible con todo» solo existe en MP4: al cambiar de formato se actualiza la lista.
-            current = quality_code(self.quality_menu.get())
-            self.settings.video_format = self.format_menu.get()
-            self.settings.video_quality = current
             self._refresh_video_quality()
-        self._save_choices()
+        self._save_choices(fmt=True)
 
-    def _save_choices(self) -> None:
+    def _on_quality_change(self) -> None:
+        self._save_choices(quality=True)
+
+    def _save_choices(self, fmt: bool = False, quality: bool = False) -> None:
+        """Guarda lo elegido. Formato y calidad solo cuando la persona los cambia: si un video no tiene lo que
+        quería (p. ej. 4K en MP4) se muestra lo más cercano, pero se recuerda lo suyo para los demás."""
         s = self.settings
         s.mode = self.mode
         if self.mode == "images":
-            s.image_format = self.format_menu.get()
+            if fmt:
+                s.image_format = self.format_menu.get()
         elif self.mode == "audio":
-            s.audio_format = self.format_menu.get()
-            if self.quality_menu.get() != LOSSLESS_LABEL:
-                s.audio_quality = self.quality_menu.get()
+            if fmt:
+                s.audio_format = self.format_menu.get()
+            if quality and self._audio_code() != "lossless":
+                s.audio_quality = self._audio_code()
         else:
-            s.video_format = self.format_menu.get()
-            s.video_quality = quality_code(self.quality_menu.get())
+            if fmt:
+                s.video_format = self.format_menu.get()
+            if quality:
+                s.video_quality = quality_code(self.quality_menu.get())
         s.playlist = bool(self.playlist_var.get())
         s.subtitles = next((k for k, v in SUBS_LABELS.items() if v == self.subs_menu.get()), "none")
         s.save()
@@ -1147,8 +1221,7 @@ class App(ctk.CTk):
             if len(available) < len(info.entries):
                 self._selection = available
         self._update_pick_label()
-        if self.mode == "video":
-            self._refresh_mode()
+        self._refresh_mode()
 
     def _show_thumb(self, data: bytes | None) -> None:
         if not data:
@@ -1180,8 +1253,7 @@ class App(ctk.CTk):
         self.thumb_lbl.configure(image=None)
         self.info_title.configure(text=_("Ningún enlace analizado"))
         self.info_meta.configure(text=_("Pega otro enlace o escribe el nombre de un video para buscarlo."))
-        if self.mode == "video":
-            self._refresh_mode()
+        self._refresh_mode()
 
     # ------------------------------------------------------------- descargas --
     def _current_options(self, url: str) -> core.DownloadOptions:
@@ -1194,18 +1266,18 @@ class App(ctk.CTk):
             url=url,
             output_dir=out,
             mode=s.mode,
-            video_format=s.video_format,
-            height=label_height(s.video_quality),
-            compat=s.video_quality == "compat" and s.video_format == "MP4",
-            audio_format=s.audio_format,
-            audio_bitrate=s.audio_quality.split()[0],
+            # Lo que muestran los menús (puede ser lo más cercano a lo que se guardó).
+            video_format=self.format_menu.get() if s.mode == "video" else s.video_format,
+            height=label_height(self.quality_menu.get()) if s.mode == "video" else None,
+            audio_format=self.format_menu.get() if s.mode == "audio" else s.audio_format,
+            audio_bitrate=self._audio_code() if s.mode == "audio" else s.audio_quality,
             playlist=s.playlist,
             filename_style=s.filename_style,
             subtitles=core.SUBTITLE_LANGS.get(s.subtitles, "") if s.mode == "video" else "",
             # (s.subtitles es un código: "none", "es", "en" o "es_en")
             keep_subtitle_files=s.keep_subtitle_files,
             rate_limit=s.rate_limit,
-            image_format=s.image_format,
+            image_format=self.format_menu.get() if s.mode == "images" else s.image_format,
         )
 
     def download(self) -> None:
@@ -1325,13 +1397,11 @@ class App(ctk.CTk):
         if o.mode == "images":
             return _("Imágenes") + (" JPG" if o.image_format == "JPG" else " · " + _("original"))
         if o.mode == "audio":
-            q = "" if o.audio_format in core.LOSSLESS_AUDIO else f" {o.audio_bitrate}k"
+            q = "" if o.audio_format in core.LOSSLESS_AUDIO else (
+                " " + _("original") if o.audio_bitrate == "orig" else f" {o.audio_bitrate}k")
             text = f"{o.audio_format}{q}"
         else:
-            if o.compat:
-                text = f"{o.video_format} " + _("compatible")
-            else:
-                text = f"{o.video_format} {f'{o.height}p' if o.height else _('máx.')}"
+            text = f"{o.video_format} {f'{o.height}p' if o.height else _('máx.')}"
         if o.playlist_items:
             n = sum(int(b) - int(a) + 1 if "-" in part else 1
                     for part in o.playlist_items.split(",")

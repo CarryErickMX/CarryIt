@@ -38,9 +38,9 @@ class Settings:
     output_dir: str = ""
     mode: str = "video"
     video_format: str = "MP4"
-    video_quality: str = "compat"    # "compat" (MP4 H.264), "best" o la altura, p. ej. "1080"
+    video_quality: str = "best"      # "best" o la altura, p. ej. "1080" (en MP4 siempre H.264 compatible)
     audio_format: str = "MP3"
-    audio_quality: str = "320 kbps"
+    audio_quality: str = "320"       # kbps deseados, u "orig" (el audio tal como lo da el sitio)
     playlist: bool = False
     appearance: str = "Dark"
     language: str = "auto"           # auto (idioma de Windows) | es | en
@@ -99,6 +99,13 @@ class Settings:
             if self.video_quality == "best":
                 self.video_quality = "compat"
             self.schema = 2
+        if self.schema < 3:
+            # 1.3.0: MP4 siempre es «compatible con todo» y cada formato muestra solo las calidades que existen.
+            self.schema = 3
+        if self.video_quality == "compat":
+            self.video_quality = "best"
+        a = str(self.audio_quality).split()[0] if str(self.audio_quality).strip() else ""
+        self.audio_quality = a if (a.isdigit() or a == "orig") else "320"
 
     def save(self) -> None:
         try:

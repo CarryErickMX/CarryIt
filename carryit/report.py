@@ -39,7 +39,8 @@ def build(error: str = "", options: core.DownloadOptions | None = None) -> str:
     ]
     if options is not None:
         if options.mode == "audio":
-            what = f"audio {options.audio_format} {options.audio_bitrate} kbps"
+            rate = _("original") if options.audio_bitrate == "orig" else f"{options.audio_bitrate} kbps"
+            what = f"audio {options.audio_format} {rate}"
         else:
             what = f"video {options.video_format} {options.height or _('máx.')}"
         parts += ["- " + _("Enlace") + f": {options.url}",
